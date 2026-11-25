@@ -1,0 +1,24 @@
+# Dependências instaladas pelo Wally (reinstaladas com `wally install`)
+Packages/
+ServerPackages/
+DevPackages/
+
+# Saídas de build do Rojo
+build/
+*.rbxl
+*.rbxlx
+
+# Ambiente e segredos (nunca versionar)
+.env
+.env.*
+*.secret
+*.pem
+
+# Arquivos do sistema e do editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Estado local do Claude Code (configurações pessoais)
+.claude/settings.local.json

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Formatação, lint e build
+    runs-on: ubuntu-latest
+    env:
+      # Versões fixadas. Atualizar apenas com aprovação, alterando também o sha256.
+      ROJO_VERSION: "7.7.1"
+      STYLUA_VERSION: "2.6.0"
+      SELENE_VERSION: "0.32.0"
+      WALLY_VERSION: "0.3.2"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Instalar ferramentas fixadas (com verificação de sha256)
+        run: |
+          set -euo pipefail
+          BIN="$HOME/.local/bin"
+          mkdir -p "$BIN" && cd "$(mktemp -d)"
+
+          fetch() { # url, arquivo, sha256
+            curl -fsSL -o "$2" "$1"
+            echo "$3  $2" | sha256sum -c -
+            unzip -o -q "$2" -d "$BIN"
+          }
+
+          fetch "https://github.com/rojo-rbx/rojo/releases/download/v${ROJO_VERSION}/rojo-${ROJO_VERSION}-linux-x86_64.zip" rojo.zip 00feb4fa0829a1dd72b49df2639da519a352bfe13cadcd83969e2ba2bb5693c4
+          fetch "https://github.com/JohnnyMorganz/StyLua/releases/download/v${STYLUA_VERSION}/stylua-linux-x86_64.zip" stylua.zip a485f72bbfa22e4642e77a84b5edc2611a5cab7477b34e2e709dd8f78e919895
+          fetch "https://github.com/Kampfkarren/selene/releases/download/${SELENE_VERSION}/selene-${SELENE_VERSION}-linux.zip" selene.zip d3773393578580074386e69337d35b7acddfbaa9fc38964c07fa3e28436ade9b
+          fetch "https://github.com/UpliftGames/wally/releases/download/v${WALLY_VERSION}/wally-v${WALLY_VERSION}-linux.zip" wally.zip 21fdbb53dfee397fd21ca7fdd208db65cff0f87f0fd045cdb594b951981bd73f
+
+          chmod +x "$BIN"/rojo "$BIN"/stylua "$BIN"/selene "$BIN"/wally
+          echo "$BIN" >> "$GITHUB_PATH"
+
+      - name: Instalar dependências (Wally)
+        run: wally install
+
+      - name: Verificar formatação (StyLua)
+        run: stylua --check src tests
+
+      - name: Lint (Selene)
+        run: selene src tests
+
+      - name: Build de produção e de teste (Rojo)
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          rojo build default.project.json -o build/game.rbxlx
+          rojo build test.project.json -o build/test.rbxlx

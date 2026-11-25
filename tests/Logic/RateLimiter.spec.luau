@@ -1,0 +1,38 @@
+--!strict
+-- selene: allow(undefined_variable)
+return function()
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local RateLimiter = require(ReplicatedStorage.Shared.Logic.RateLimiter)
+
+	describe("RateLimiter", function()
+		it("permite até a capacidade e bloqueia depois", function()
+			local limiter = RateLimiter.new(3, 0)
+			expect(RateLimiter.Consume(limiter, 0)).to.equal(true)
+			expect(RateLimiter.Consume(limiter, 0)).to.equal(true)
+			expect(RateLimiter.Consume(limiter, 0)).to.equal(true)
+			expect(RateLimiter.Consume(limiter, 0)).to.equal(false)
+		end)
+
+		it("recarrega fichas com o tempo, sem passar da capacidade", function()
+			local limiter = RateLimiter.new(2, 1)
+			RateLimiter.Consume(limiter, 0)
+			RateLimiter.Consume(limiter, 0)
+			expect(RateLimiter.Consume(limiter, 0)).to.equal(false)
+			expect(RateLimiter.Consume(limiter, 1)).to.equal(true)
+			expect(RateLimiter.Consume(limiter, 1)).to.equal(false)
+			expect(RateLimiter.Consume(limiter, 100)).to.equal(true)
+			expect(limiter.Tokens <= limiter.Capacity).to.equal(true)
+		end)
+
+		it("ignora tempo que volta para trás sem criar fichas extras", function()
+			local limiter = RateLimiter.new(1, 10)
+			expect(RateLimiter.Consume(limiter, 10)).to.equal(true)
+			expect(RateLimiter.Consume(limiter, 5)).to.equal(false)
+		end)
+
+		it("rejeita configuração inválida", function()
+			expect(pcall(RateLimiter.new, 0, 1)).to.equal(false)
+			expect(pcall(RateLimiter.new, 1, -1)).to.equal(false)
+		end)
+	end)
+end
