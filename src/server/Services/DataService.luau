@@ -3,22 +3,32 @@
 	DataService: camada de abstração ÚNICA entre o jogo e o ProfileStore.
 
 	Regras:
-	- Nenhum outro serviço deve require() o ProfileStore. Use GetData, Mutate, IsLoaded, OnLoaded.
+	- Nenhum outro serviço deve require() o ProfileStore. Use Read, GetData, Mutate, IsLoaded,
+	  OnLoaded e OnChanged.
 	- Um perfil é carregado com lock de sessão, então só um servidor escreve os dados do jogador.
 	- Dados de versão mais nova ou inválida nunca são alterados por este código (ver SchemaMigrator).
 	- O fechamento do servidor é tratado pelo próprio ProfileStore (game:BindToClose).
 	  Aqui só liberamos a sessão quando o jogador sai.
+	- Só no Studio, com o atributo Persistence.StudioFreshProfileAttribute no Workspace, os perfis
+	  vêm do ProfileStore.Mock: novos, temporários e sem acesso a nenhum DataStore.
+
+	Custo das cópias: Mutate copia o perfil (transação) e GetData devolve uma cópia. Caminhos
+	frequentes (relógio de produção, objetivos) usam Read, que não copia nada.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Persistence = require(Shared.Config.Persistence)
 local PlayerDataTypes = require(Shared.Types.PlayerData)
 local SchemaMigrator = require(Shared.Logic.SchemaMigrator)
+local DeepCopy = require(Shared.Logic.DeepCopy)
+local Transaction = require(Shared.Logic.Transaction)
+local PlayerMigrations = require(Shared.Logic.PlayerMigrations)
 
 -- Biblioteca de terceiros (Wally: lm-loleris/profilestore@=1.0.3).
 local ProfileStore = require(ServerScriptService:WaitForChild("ServerPackages"):WaitForChild("ProfileStore"))
@@ -40,8 +50,8 @@ local DataService = {}
 
 local CURRENT_VERSION: number = Persistence.SchemaVersion
 
--- Migrações registradas por versão de destino. Ex.: MIGRATIONS[2] = function(data) ... end
-local MIGRATIONS: { [number]: Migration } = {}
+-- Migrações registradas por versão de destino (ver Logic/PlayerMigrations).
+local MIGRATIONS: { [number]: Migration } = PlayerMigrations
 
 local MSG_LOAD_FAILED = "Não foi possível carregar seus dados. Tente entrar novamente em alguns instantes."
 local MSG_INCOMPATIBLE = "Seus dados são de uma versão incompatível deste servidor. Contate o suporte."
@@ -50,24 +60,15 @@ local MSG_SESSION_ENDED = "Sua sessão foi encerrada porque sua conta foi carreg
 local store: any = nil
 local profiles: { [Player]: Profile } = {}
 local loadedCallbacks: { (player: Player) -> () } = {}
+local changedCallbacks: { (player: Player) -> () } = {}
+local changePending: { [Player]: boolean } = {}
+local useMock = false
 
 local function getStoreName(): string
 	if RunService:IsStudio() then
 		return Persistence.StoreName .. Persistence.StudioStoreSuffix
 	end
 	return Persistence.StoreName
-end
-
--- Cópia profunda de dados JSON-like (tabelas, strings, números, booleanos).
-local function deepCopy(value: any): any
-	if type(value) ~= "table" then
-		return value
-	end
-	local copy: { [any]: any } = {}
-	for key, inner in value do
-		copy[key] = deepCopy(inner)
-	end
-	return copy
 end
 
 local function kickIfPresent(player: Player, message: string)
@@ -80,7 +81,8 @@ local function loadProfile(player: Player)
 	local key = Persistence.ProfileKeyPrefix .. tostring(player.UserId)
 
 	-- Cancel interrompe as tentativas se o jogador sair durante o carregamento.
-	local profile: Profile? = store:StartSessionAsync(key, {
+	local source = if useMock then store.Mock else store
+	local profile: Profile? = source:StartSessionAsync(key, {
 		Cancel = function(): boolean
 			return player.Parent ~= Players
 		end,
@@ -114,7 +116,7 @@ local function loadProfile(player: Player)
 	if status == "NeedsMigration" then
 		-- Migra uma cópia: se uma migração falhar no meio, os dados originais não são alterados
 		-- e a sessão é liberada sem gravar nada de parcial.
-		local working = deepCopy(profile.Data)
+		local working = DeepCopy.Clone(profile.Data)
 		local ok, err =
 			pcall(SchemaMigrator.Apply, working :: any, storedVersion :: number, CURRENT_VERSION, MIGRATIONS)
 		if not ok then
@@ -150,6 +152,7 @@ end
 local function onPlayerRemoving(player: Player)
 	local profile = profiles[player]
 	profiles[player] = nil
+	changePending[player] = nil
 	if profile ~= nil then
 		profile:EndSession()
 	end
@@ -158,7 +161,22 @@ end
 function DataService.Init()
 	assert(store == nil, "DataService.Init chamado mais de uma vez")
 
-	store = ProfileStore.New(getStoreName(), { SchemaVersion = CURRENT_VERSION })
+	-- Template de perfil novo. Campos novos aqui também devem existir em PlayerMigrations.
+	store = ProfileStore.New(getStoreName(), {
+		SchemaVersion = CURRENT_VERSION,
+		Resources = {},
+		Buildings = {},
+		Storage = {},
+		Levels = {},
+		Expansions = {},
+		Stats = {},
+		Objective = 0,
+	})
+
+	useMock = RunService:IsStudio() and Workspace:GetAttribute(Persistence.StudioFreshProfileAttribute) == true
+	if useMock then
+		warn("[DataService] Studio com perfil temporário (ProfileStore.Mock): nada será lido nem salvo no DataStore")
+	end
 
 	ProfileStore.OnError:Connect(function(message: string, storeName: string, profileKey: string)
 		warn(`[DataService] Erro do ProfileStore em {storeName}/{profileKey}: {message}`)
@@ -179,22 +197,53 @@ function DataService.Init()
 	end
 end
 
--- Dados do jogador ou nil se ainda não carregados. Não alterar diretamente: use Mutate.
-function DataService.GetData(player: Player): PlayerData?
+-- Lê os dados do jogador SEM copiar: `reader` recebe a tabela real e não pode alterá-la nem
+-- esperar (yield). Devolve o que `reader` devolver, ou nil se o perfil não estiver ativo.
+function DataService.Read<T>(player: Player, reader: (data: PlayerData) -> T): T?
 	local profile = profiles[player]
-	if profile == nil then
+	if profile == nil or not profile:IsActive() then
 		return nil
 	end
-	return profile.Data
+	return reader(profile.Data)
 end
 
--- Altera os dados do jogador. Retorna false se o perfil não estiver carregado ou ativo.
+-- Cópia somente leitura dos dados do jogador, ou nil se o perfil não estiver carregado e ativo.
+-- Alterar a cópia não altera os dados salvos: para alterar, use Mutate.
+function DataService.GetData(player: Player): PlayerData?
+	local profile = profiles[player]
+	if profile == nil or not profile:IsActive() then
+		return nil
+	end
+	return DeepCopy.Clone(profile.Data)
+end
+
+-- Altera os dados do jogador de forma transacional: a função recebe uma cópia, e o resultado só
+-- substitui os dados se ela terminar sem erro. Retorna false se o perfil não estiver ativo ou se
+-- a função falhar; nesse caso os dados permanecem exatamente como estavam.
 function DataService.Mutate(player: Player, mutator: (data: PlayerData) -> ()): boolean
 	local profile = profiles[player]
 	if profile == nil or not profile:IsActive() then
 		return false
 	end
-	mutator(profile.Data)
+	local ok, result = Transaction.Apply(profile.Data, mutator)
+	if not ok then
+		warn(`[DataService] Mutação cancelada para o jogador {player.UserId}: {tostring(result)}`)
+		return false
+	end
+	profile.Data = result
+	-- Avisa os interessados uma vez por quadro, mesmo com várias mutações seguidas.
+	if #changedCallbacks > 0 and not changePending[player] then
+		changePending[player] = true
+		task.defer(function()
+			if not changePending[player] then
+				return -- jogador saiu
+			end
+			changePending[player] = nil
+			for _, callback in changedCallbacks do
+				task.spawn(callback, player)
+			end
+		end)
+	end
 	return true
 end
 
@@ -205,6 +254,16 @@ end
 -- Registra uma função chamada quando o perfil de um jogador é carregado.
 function DataService.OnLoaded(callback: (player: Player) -> ())
 	table.insert(loadedCallbacks, callback)
+end
+
+-- Registra uma função chamada depois de mutações bem-sucedidas (agrupadas por quadro).
+function DataService.OnChanged(callback: (player: Player) -> ())
+	table.insert(changedCallbacks, callback)
+end
+
+-- Verdadeiro se este servidor usa perfis temporários (ProfileStore.Mock, só no Studio).
+function DataService.IsMock(): boolean
+	return useMock
 end
 
 return DataService

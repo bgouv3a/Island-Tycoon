@@ -47,3 +47,21 @@ Ferramentas e versões: ver `docs/skills-e-ferramentas.md`.
 - Plugin `roblox-dev` instalado: usar as skills `roblox-*` ao escrever ou revisar código Roblox (segurança de remotes, DataStore, performance, tipagem strict).
 - Skill `find-skills` disponível globalmente: buscar com `npx -y skills find <termo>`. **Revisar a origem e pedir aval do usuário antes de instalar** qualquer skill.
 - Todo skill ou ferramenta instalada deve ser registrada em `docs/skills-e-ferramentas.md`.
+
+## Modelos e subagentes
+Agente principal: **Opus** (arquitetura, game design, segurança, integração e aprovação final). Subagentes em `.claude/agents/`:
+| Agente | Modelo | Uso |
+|---|---|---|
+| `fast-assistant` | haiku | Localizar arquivos, buscas simples, resumos, documentação, tarefas mecânicas |
+| `game-developer` | sonnet | Implementação Luau de complexidade baixa/média, bugs, testes, interfaces, integração |
+| `world-builder` | sonnet | Cenários no Studio via MCP: low-poly, vegetação, iluminação, efeitos |
+| `quality-reviewer` | sonnet | Revisão de alterações relevantes e execução de testes; só problemas concretos |
+
+Regras de delegação:
+- O Opus resolve diretamente tarefas complexas e decisões críticas. Delega o simples ao Haiku e implementações intermediárias ao Sonnet.
+- Usar subagente só com benefício concreto. Nada de múltiplos agentes em tarefas triviais.
+- Nunca dois agentes ao mesmo tempo nos mesmos arquivos ou no mesmo cenário do Studio.
+- Passar ao subagente só o contexto necessário e exigir relatório curto e objetivo.
+- O Opus revisa e integra os resultados antes de entregar.
+- Economia de tokens sem sacrificar qualidade. Sem auditorias repetitivas.
+- Não configurar opção global que force todos os subagentes a um único modelo.

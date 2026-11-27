@@ -23,16 +23,19 @@ Coletar recursos → Processar/vender → Comprar ou construir → Automatizar �
 | Base técnica (bootstrap, persistência, rede, validação) | 1 | Sem gameplay visível |
 | Recursos e coleta | 2 | Nós de recursos no mundo que reaparecem após um tempo |
 | Inventário | 2 | Itens do jogador, com limite e validação no servidor |
-| Economia | 2 | Moedas ganhas e gastas, validadas no servidor |
+| Economia | 2 | Moedas ganhas e gastas, validadas no servidor. **Provisória (2026-11-27):** Pedra, moedas, mercado no píer, melhorias da Serraria, primeira expansão e objetivos iniciais. Valores em D-034 (sujeitos a balanceamento) |
 | Construção | 3 | Colocação de estruturas na ilha, com regras de espaço e custo |
 | Ilhas | 3 | Um lote por jogador, com área delimitada |
-| Automação | 4 | Máquinas que produzem itens em intervalos próprios |
+| Automação | 4 | Máquinas que produzem itens em intervalos próprios. Começou antecipadamente com a Serraria (D-031) |
 | Progressão | 5 | Desbloqueios ligados a metas de coleta, construção e automação |
 | Social | 6 | Visitar ilhas de outros jogadores |
 
 ## 5. Estilo visual
-- Low-poly, com paleta colorida e clara.
-- Otimização desde o início: poucos objetos, poucas luzes dinâmicas e custo de renderização controlado.
+- Low-poly estilizado, **tropical**, com paleta colorida e clara (`Shared/Art/Palette`). Formas arredondadas e silhuetas reconhecíveis (palmeiras, cabanas, píer).
+- Ilha com contorno natural: praia, grama, colina, clareira de construção e caminho. Frente da ilha com píer e chegada.
+- Interface clara e quente: painéis creme, contorno laranja, botões verdes de ação, fonte arredondada (FredokaOne). Ícones desenhados, sem emoji.
+- Feedback a cada ação: popup, partículas, som e animação.
+- Otimização desde o início: poucos objetos, poucas luzes dinâmicas e custo de renderização controlado. Visual gerado por código (D-027).
 
 ## 6. Plataformas (aprovado)
 - **PC e mobile desde o MVP.** Controles e interface são projetados para os dois.
@@ -49,6 +52,6 @@ Coletar recursos → Processar/vender → Comprar ou construir → Automatizar �
 - Trocas diretas entre jogadores e mercado global: **não definidos**. Não implementar sem aprovação.
 
 ## Perguntas em aberto
-1. Quais recursos e cadeias de produção fazem parte do MVP? *(necessário antes da Fase 2)*
+1. Quais recursos e cadeias de produção fazem parte do MVP? *(necessário antes da Fase 2)*. **Parcial:** recursos provisórios são Madeira (D-024), Pedra e Moedas (D-034, D-035). Cadeias de produção continuam em aberto; a próxima proposta é a cadeia de tábuas (Planks) na Serraria, que depende de aprovação.
 2. Qual é o limite de jogadores por servidor desejado? *(será definido por testes de desempenho, Fase 7)*
 3. Trocas entre jogadores fazem parte do escopo? *(não definido)*

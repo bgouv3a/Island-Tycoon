@@ -8,6 +8,18 @@ Registro de tudo o que foi instalado ou habilitado no projeto. Instalar apenas a
 |---|---|---|---|---|
 | `roblox-dev` | Plugin do Claude Code | `anthropic-plugin-directory` (habilitado em `.claude/settings.local.json`) | 2026-11-24 | Skills Roblox: arquitetura, segurança, DataStore, performance, tipagem strict, testes, UI e setup |
 | `find-skills` | Skill global | Pré-instalada no ambiente do usuário | 2026-11-24 | Busca de skills com `npx -y skills find <termo>` |
+| `Roblox_Studio` | Servidor MCP (stdio) | `mcp.bat` do próprio Roblox Studio em `%LOCALAPPDATA%\Roblox`, registrado com `claude mcp add` pelo dono do projeto | 2026-11-25 | Ponte entre o Claude e o Studio. Verificado: conectado. Configuração em `%USERPROFILE%\.claude.json` (fora do repositório). Não usar para operar DataStore de produção |
+
+## Subagentes do Claude Code (`.claude/agents/`)
+
+Criados em 2026-11-26 a pedido do dono. Regras de delegação no `CLAUDE.md` (seção "Modelos e subagentes"). Nenhuma configuração global de modelo de subagente foi alterada.
+
+| Agente | Modelo | Ferramentas | Uso |
+|---|---|---|---|
+| `fast-assistant` | haiku | Read, Grep, Glob, Edit, Write | Buscas, resumos, documentação, tarefas mecânicas |
+| `game-developer` | sonnet | Todas (herdadas) | Implementação Luau baixa/média, bugs, testes, UI |
+| `world-builder` | sonnet | Todas (herdadas, inclui Roblox Studio MCP) | Cenários low-poly no Studio |
+| `quality-reviewer` | sonnet | Read, Grep, Glob, Bash e MCP do Studio para Play, console e testes | Revisão e testes; não edita arquivos |
 
 ## Ferramentas (aprovadas e fixadas)
 
@@ -25,6 +37,15 @@ Registro de tudo o que foi instalado ou habilitado no projeto. Instalar apenas a
 - StyLua 2.6.0: `a485f72bbfa22e4642e77a84b5edc2611a5cab7477b34e2e709dd8f78e919895`
 - Selene 0.32.0: `d3773393578580074386e69337d35b7acddfbaa9fc38964c07fa3e28436ade9b`
 - Wally 0.3.2: `21fdbb53dfee397fd21ca7fdd208db65cff0f87f0fd045cdb594b951981bd73f`
+
+## Assets externos
+
+| Asset | ID | Origem | Uso |
+|---|---|---|---|
+| Som "Wood Chopping Exterior Single Hits 27 (SFX)" | 9120809592 | ProSoundEffects (Creator Store, gratuito, parceira oficial da Roblox) | Coleta (`Config/Audio`) |
+| Som "Gavel Hit Wood Mallet Hit Wood Light Impacts (SFX)" | 9125573847 | ProSoundEffects (idem) | Construção (`Config/Audio`) |
+
+Modelos, texturas de partículas (`rbxasset://`, internas do Roblox) e ícones são gerados por código; nenhum modelo ou script de terceiros foi inserido.
 
 ## Dependências Luau (Wally)
 

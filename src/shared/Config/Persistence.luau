@@ -12,7 +12,12 @@ local Persistence = {
 
 	ProfileKeyPrefix = "Player_",
 
-	SchemaVersion = 1,
+	-- Só no Studio: com este atributo verdadeiro no Workspace (definido em modo Edit, antes do Play),
+	-- cada jogador recebe um perfil novo e temporário do ProfileStore.Mock, que fica só na memória
+	-- e não lê nem grava nenhum DataStore. Serve para testar a experiência de jogador novo.
+	StudioFreshProfileAttribute = "FreshProfile",
+
+	SchemaVersion = 5,
 }
 
 return Persistence

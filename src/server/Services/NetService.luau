@@ -48,6 +48,20 @@ function NetService.Init()
 	end
 end
 
+-- Cria um RemoteEvent de saída (servidor → cliente). O servidor envia dados já decididos;
+-- o cliente não envia nada por ele. Usado para confirmar resultados, como o saldo.
+function NetService.CreateOutgoing(name: string): RemoteEvent
+	local folder = remotesFolder
+	assert(folder ~= nil, "NetService.Init precisa ser chamado antes de CreateOutgoing")
+	assert(not registered[name], `Remote já registrado: {name}`)
+	registered[name] = true
+
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = folder
+	return remote
+end
+
 function NetService.Register(name: string, validator: Validator, handler: Handler, limit: Limit?)
 	local folder = remotesFolder
 	assert(folder ~= nil, "NetService.Init precisa ser chamado antes de Register")

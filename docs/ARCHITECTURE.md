@@ -55,7 +55,7 @@ Regras de dependência:
 - `Logic` não acessa serviços do Roblox, para que os testes rodem sem o jogo.
 
 ## 3. Bootstrap
-- **Servidor** (`src/server/init.server.luau`): inicia `NetService` e depois `DataService`. Novos serviços entram aqui, e não em outros scripts.
+- **Servidor** (`src/server/init.server.luau`): ordem `NetService` → `DataService` → `IslandService` → `BuildService` → `ProductionService` → `MarketService` → `ExpansionService` → `ObjectiveService`. Novos serviços entram aqui, e não em outros scripts.
 - **Cliente** (`src/client/init.client.luau`): inicia `InputModeController`.
 
 ## 4. Serviços do servidor
@@ -64,10 +64,12 @@ Regras de dependência:
 
 | Função | Uso |
 |---|---|
-| `DataService.GetData(player)` | Leitura dos dados, ou `nil` se não carregados |
-| `DataService.Mutate(player, fn)` | Única forma de alterar dados. Retorna `false` se o perfil não estiver ativo |
+| `DataService.GetData(player)` | Cópia profunda somente leitura dos dados, ou `nil` se não carregados ou inativos. Alterar a cópia não altera os dados salvos |
+| `DataService.Mutate(player, fn)` | Única forma de alterar dados. A função recebe uma cópia; o resultado só substitui os dados se ela terminar sem erro. Retorna `false` se o perfil não estiver ativo ou se a função falhar (os dados ficam como estavam) |
 | `DataService.IsLoaded(player)` | Verifica se o perfil está carregado |
 | `DataService.OnLoaded(fn)` | Callback quando o perfil de um jogador é carregado |
+| `DataService.Read(player)` | Leitura **sem cópia e sem yield**, para caminhos frequentes (relógio de produção, objetivos, publicação de estado). Não altera nem guarda a tabela (D-039) |
+| `DataService.OnChanged(fn)` | Avisa mudanças de perfil, no máximo uma vez por quadro por jogador (D-039) |
 
 Comportamento:
 - **Lock de sessão:** a sessão é iniciada com `StartSessionAsync`. Se o jogador sair durante o carregamento, a tentativa é cancelada.
@@ -80,6 +82,7 @@ Comportamento:
 - **Saída:** `PlayerRemoving` chama `EndSession`, que grava e libera o lock.
 - **Fechamento do servidor:** o ProfileStore registra o próprio `game:BindToClose` e libera todos os perfis. O `DataService` não duplica essa lógica.
 - **Ambiente:** no Studio usa `IslandRebuild_PlayerData_Studio`. Nunca usa `ProfileStore.Mock` em produção.
+- **Perfil temporário de teste (D-040):** no Studio, com o atributo `FreshProfile = true` no `Workspace` (definido em modo Edit, sem salvar o lugar), o `DataService` usa `ProfileStore.Mock`. Fica só na memória e não lê nem grava DataStore. Serve para testar jogador novo sem tocar em perfis reais.
 
 ### 4.2 NetService (base da Fase 1)
 Ponto único de entrada de RemoteEvents. Cada remote passa, nesta ordem, por:
@@ -88,16 +91,61 @@ Ponto único de entrada de RemoteEvents. Cada remote passa, nesta ordem, por:
 3. **Handler** do sistema, que só roda se as duas etapas anteriores passarem.
 
 Os remotes ficam em `ReplicatedStorage/Remotes`, criados pelo servidor.
+Remotes de saída (servidor → cliente) são criados por `NetService.CreateOutgoing` (D-025).
+
+### 4.2b IslandService (Fase 2, primeiro ciclo jogável)
+- Cria 8 ilhas (`Workspace/Islands`, limite em `Config/Gameplay`). Cada ilha tem 4 árvores com `ProximityPrompt`.
+- Ao entrar, o jogador recebe a primeira ilha livre (`Logic/IslandAllocator`); ao sair, a ilha é liberada e as árvores reiniciadas. Sem ilha livre, o jogador é desconectado com aviso.
+- Coleta (`CollectResource`, via `NetService`): o servidor valida o ID, o dono da ilha, o cooldown e o alcance (`Logic/Collect`), depois soma o saldo com `DataService.Mutate` (`Logic/ResourceLedger`).
+- O servidor envia `ResourcesChanged` (saldo) e `ResourceCollected(nodeId, amount, resourceId, cooldown)` (confirmação para o efeito visual). `RequestResources` pede o saldo inicial.
+- Cliente: `Resources/ResourceController` mostra o saldo, o popup de coleta e envia apenas o pedido.
+
+### 4.2c BuildService (Fase 2, construção)
+- Cada ilha tem 8 pontos fixos (`Gameplay.Build.Sites`, B1–B8; B5–B8 em D-032) com marcador e `ProximityPrompt`. O modelo da ilha guarda o atributo `OwnerUserId` (público), e o cliente só abre a construção na ilha do próprio jogador.
+- Pedido `BuildStructure(ponto, estrutura)`: o cliente não informa ilha, preço nem posição. O servidor usa a ilha do jogador, o alcance e o catálogo de `Config/Gameplay`.
+- Regras puras em `Logic/Build.Apply`: ilha → ponto → estrutura → alcance → ocupação → saldo. Ocupação e desconto acontecem na mesma `DataService.Mutate`, então compras simultâneas no mesmo ponto não são cobradas duas vezes.
+- Persistência: `Buildings` no perfil (`ponto local → estrutura`), schema 3 com migração em `Logic/PlayerMigrations`. Ao carregar, `Build.Restore` descarta valores desconhecidos e recria as estruturas sem duplicar. Ao sair, as estruturas visuais da ilha são removidas.
+- Resultado (`BuildResult`) é enviado ao jogador que pediu, com o motivo. Após compra aceita, o saldo é reenviado (`IslandService.SendSnapshot`).
+- Cliente: `Build/BuildController` mostra o painel (custo, madeira, confirmação e resultado). Efeito visual de construção em `UI/Popup`.
+
+### 4.2d Mundo, arte e apresentação (vertical slice visual, D-027)
+- **Tudo gerado por código e versionado pelo Rojo**; nada depende de salvar o lugar.
+- `Server/World/Environment`: iluminação e pós-processamento, oceano em Terrain, relevo de cada ilha (praia, grama com borda irregular, colina, clareira de areia e caminho), `WaitForGround` e `GroundY`. Esconde `Baseplate` e `SpawnLocation` sem apagá-los (D-030).
+- `Server/World/IslandDecor`: pedras, arbustos, flores, caminho, placa (âncora do nome do dono) e píer.
+- `Shared/Art/Palette` (cores do mundo e da interface) e `Shared/Art/Models` (palmeira, cerca, cabana, marcador e decoração). Usados pelo servidor no mundo e pelo cliente nas prévias do painel.
+- **Ordem no `IslandService.Init`:** ambiente → relevo de todas as ilhas → espera o terreno responder → mede o chão da clareira (origem da ilha) → objetos. Ver P-014.
+- **Layout da ilha (frente = +Z):** chegada e píer na frente, clareira de construção no centro (B1–B8), palmeiras no fundo e nas laterais.
+- **Cliente:** `UI/Theme` (fontes, cantos, botões animados, ícone de madeira desenhado), `UI/Effects` (partículas, sons, animação de construção), `UI/Popup`, `Onboarding/OnboardingController` (objetivo + feixe guia, etapa de `Logic/Onboarding`, D-029).
+- **Feedback só no cliente e só visual:** popups, partículas, sons e a animação de construção não alteram o estado; o servidor continua dono do resultado.
+
+### 4.2e ProductionService (Serraria, primeira automação, D-031)
+- **Lógica pura** em `Shared/Logic/Production` (`Step`, `Stored`, `Sanitize`, `Harvest`). Regras por estrutura em `Config/Gameplay.Production.Producers` (quantidade por ciclo e intervalo em segundos).
+- **Relógio único** de 1 s no servidor. Só produz para o dono conectado. O progresso fica só em memória: é zerado a cada sessão e não há produção offline.
+- **Estoque** por ponto em `Storage` (ponto local → quantidade), persistido no perfil. Alterado somente por `DataService.Mutate`.
+- **Coleta** (`HarvestProduction`, via `NetService`): move todo o estoque do ponto numa única mutação, sem duplicação. Resultado (`HarvestResult`) com motivo: `Ok`, `Empty`, `OutOfReach`, `NotProducer` etc. Rate limit de 4 pedidos por 2 s.
+- **Estoque cheio:** a produção pausa e zera o progresso.
+- **Reuso:** a Serraria é uma estrutura do `BuildService`. `ProductionService` usa `OnPlaced` e `GetStructure`. Compra no ponto zera o estoque daquele ponto.
+- Cliente: `Client/Production/ProductionController` mostra o indicador, animações e efeitos. Só envia o pedido de coleta.
+
+### 4.2f Economia, melhorias, expansão e objetivos (2026-11-27, D-034 a D-038)
+- **Fonte única de valores:** `Config/Economy` tem recursos (Madeira, Pedra, Moedas), preços de venda, custos de estruturas, níveis de melhoria da Serraria, expansões e recompensas de objetivos. Todos os valores são **provisórios** e devem ser ajustados após teste com jogadores (D-034).
+- **Lógica pura:** `Logic/Cost` (custo com vários recursos, tudo ou nada), `Logic/Market`, `Logic/Upgrade`, `Logic/Expansion`, `Logic/Objectives`, `Logic/Stats`. Cada compra, venda ou melhoria roda numa única `DataService.Mutate`, então nada é cobrado nem creditado duas vezes (D-035).
+- **`MarketService`:** venda por `SellResource(recurso, quantidade)`; resposta em `SellResult`. Lote máximo de 300. Só vende a partir do píer (alcance validado no servidor).
+- **Melhoria da Serraria:** `UpgradeProducer(ponto)` com resposta em `UpgradeResult(ponto, resultado, nível)`. Níveis 1 a 5 mudam velocidade, capacidade e custo. Até 2 Serrarias por ilha.
+- **`ExpansionService`:** `ExpandIsland(área)` com resposta em `ExpandResult(área, resultado)`. Na compra, o terreno da área sobe do mar em etapas. Ao sair do dono, a área volta ao mar, porque a ilha pode ir para outro jogador. Pontos de expansão ficam ocultos e recusados (`Locked`, em `BuildService` e `Logic/Build`) até a liberação. Expansão atual: Enseada Leste (E1), com pontos X1–X3.
+- **`ObjectiveService`:** progresso calculado do estado do perfil. `RequestObjective()` pede o estado; `ObjectiveChanged(estado, concluídos)` é enviado só quando muda. Ao carregar, objetivos já cumpridos são marcados sem recompensa. A recompensa entra na mesma mutação que conclui o objetivo. Substitui a orientação derivada no cliente (D-029).
+- **Cliente:** `Client/Market`, `Client/Upgrade`, `Client/Expansion` e `Client/Onboarding` (cartão de objetivos e feixe-guia) só abrem painéis e enviam pedidos. A interface de apoio fica em `Client/UI` (`Panel`, `Toast`, `Format`, `World`).
 
 ### 4.3 Serviços previstos (fases seguintes, sem implementação ainda)
 | Serviço | Fase | Responsabilidade |
 |---|---|---|
-| `EconomyService` | 2 | Moedas. Única fonte do saldo. Registra transações |
+| ~~`EconomyService`~~ | 2 | Não será criado: moedas ficam em `Resources` (D-035); venda no `MarketService`, custos em `Logic/Cost` |
 | `InventoryService` | 2 | Itens do jogador. Limite de slots |
 | `ResourceService` | 2 | Nós de coleta: cooldown, respawn, alcance |
 | `IslandService` | 3 | Atribui um lote de ilha a cada jogador |
-| `BuildService` | 3 | Valida e aplica colocação: custo, propriedade, área e colisão |
-| `AutomationService` | 4 | Produção das máquinas (ver seção 7) |
+| `BuildService` | 2 | Implementado (ver 4.2c): pontos fixos, custo, propriedade e alcance. Área livre e colisão ficam para a fase de ilhas |
+| `ProductionService` | 2 | Implementado (ver 4.2e): primeira máquina, a Serraria (D-031) |
+| `AutomationService` | 4 | Produção das máquinas em geral (ver seção 7). Pode reaproveitar `ProductionService` |
 | `SocialService` | 6 | Visitas e permissões entre ilhas |
 
 ## 5. Cliente
@@ -121,7 +169,7 @@ Os remotes ficam em `ReplicatedStorage/Remotes`, criados pelo servidor.
 ## 8. Persistência — resumo
 - Uma chave por jogador: `Player_<UserId>`, em um DataStore por ambiente.
 - Lock de sessão, salvamento automático pelo ProfileStore, `EndSession` ao sair e salvamento no fechamento do servidor.
-- Versão do schema em `PlayerData.SchemaVersion` (atual: 1). Mudar o schema exige: incrementar `Persistence.SchemaVersion`, registrar a migração em `DataService` (`MIGRATIONS`) e adicionar teste em `tests/Logic`.
+- Versão do schema em `PlayerData.SchemaVersion` (atual: 5; v2 adicionou `Resources`, ver D-024; v3 adicionou `Buildings`, ver D-026; v4 adicionou `Storage` (ponto → quantidade), ver D-031; v5 adicionou `Levels` (nível por ponto), `Expansions`, `Stats` (estatísticas para objetivos) e `Objective` (objetivos concluídos), ver D-036; migrações em `Logic/PlayerMigrations`). Mudar o schema exige: incrementar `Persistence.SchemaVersion`, registrar a migração em `DataService` (`MIGRATIONS`) e adicionar teste em `tests/Logic`.
 
 ## 9. Ilhas — decisão aprovada (D-006)
 - **Lotes individuais no mesmo servidor.** Cada jogador tem uma ilha própria dentro do mapa compartilhado.
