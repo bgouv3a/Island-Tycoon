@@ -9,6 +9,8 @@
 	- v5: adiciona níveis de melhoria (Levels), expansões (Expansions), estatísticas (Stats) e
 	  objetivos concluídos (Objective). Quem já construiu algo já coletou madeira: a estatística
 	  WoodCollected começa no alvo do primeiro objetivo, para não pedir de novo o que já foi feito.
+	- v6: adiciona o estoque de entrada das máquinas que processam (Inputs), os pedidos comerciais
+	  (Orders, preenchidos pelo MarketService na primeira carga) e o estágio da ilha (Stage = 1).
 ]]
 
 -- Alvo do primeiro objetivo (Config/Economy.Objectives[1]); repetido aqui para a migração não
@@ -48,6 +50,16 @@ local MIGRATIONS: { [number]: Migration } = {
 		local collected = data.Stats.WoodCollected
 		if built and (type(collected) ~= "number" or collected < V5_WOOD_COLLECTED_FOR_BUILDERS) then
 			data.Stats.WoodCollected = V5_WOOD_COLLECTED_FOR_BUILDERS
+		end
+	end,
+	[6] = function(data: { [string]: any })
+		for _, field in { "Inputs", "Orders" } do
+			if type(data[field]) ~= "table" then
+				data[field] = {}
+			end
+		end
+		if type(data.Stage) ~= "number" then
+			data.Stage = 1
 		end
 	end,
 }

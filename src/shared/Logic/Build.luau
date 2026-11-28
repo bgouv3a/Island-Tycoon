@@ -11,10 +11,13 @@
 ]]
 
 local ResourceLedger = require(script.Parent.ResourceLedger)
+local Cost = require(script.Parent.Cost)
 
 local Build = {}
 
-export type Structure = { Name: string, Cost: number, MaxPerIsland: number? }
+-- Cost: custo em madeira (CurrencyId). Price, se existir, substitui Cost por um custo com vários
+-- recursos. MaxPerStage (por estágio da ilha) substitui MaxPerIsland quando existe.
+export type Structure = { Name: string, Cost: number, Price: Cost.Cost?, MaxPerIsland: number?, MaxPerStage: { number }? }
 
 -- Catálogo: pontos válidos (chave = identificador do ponto) e estruturas válidas.
 export type Catalog = {
@@ -52,7 +55,7 @@ export type Result =
 -- Verifica a compra e, se for válida, registra a construção e desconta a madeira.
 -- Qualquer recusa retorna antes de alterar `data`.
 function Build.Apply(
-	data: { Resources: { [string]: number }, Buildings: Buildings, Expansions: { [string]: boolean }? },
+	data: { Resources: { [string]: number }, Buildings: Buildings, Expansions: { [string]: boolean }?, Stage: number? },
 	request: Request,
 	catalog: Catalog
 ): Result
@@ -87,18 +90,26 @@ function Build.Apply(
 	if buildings[request.SiteId] ~= nil then
 		return "Occupied"
 	end
-	if structure.MaxPerIsland ~= nil then
+	local limit = structure.MaxPerIsland
+	if structure.MaxPerStage ~= nil then
+		local stage = if type(data.Stage) == "number" and data.Stage == data.Stage then data.Stage else 1
+		limit = structure.MaxPerStage[math.clamp(math.floor(stage), 1, #structure.MaxPerStage)]
+	end
+	if limit ~= nil then
 		local owned = 0
 		for _, structureId in buildings do
 			if structureId == request.StructureId then
 				owned += 1
 			end
 		end
-		if owned >= structure.MaxPerIsland then
+		if owned >= limit then
 			return "Limit"
 		end
 	end
-	if not ResourceLedger.Spend(data.Resources, catalog.CurrencyId, structure.Cost) then
+	local paid = if structure.Price ~= nil
+		then Cost.Spend(data.Resources, structure.Price)
+		else ResourceLedger.Spend(data.Resources, catalog.CurrencyId, structure.Cost)
+	if not paid then
 		return "Insufficient"
 	end
 	buildings[request.SiteId] = request.StructureId

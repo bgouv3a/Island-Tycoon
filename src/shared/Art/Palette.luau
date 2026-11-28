@@ -51,6 +51,15 @@ local Palette = {
 	OreRockDark = Color3.fromRGB(98, 94, 114),
 	GoldDark = Color3.fromRGB(204, 150, 44),
 	BuoyRed = Color3.fromRGB(240, 96, 80),
+	-- Pedreira, Carpintaria e passadiço (passe de arte)
+	QuarryYard = Color3.fromRGB(176, 166, 150),
+	WorkshopYard = Color3.fromRGB(214, 194, 150),
+	ThatchRoof = Color3.fromRGB(214, 176, 96),
+	ThatchDark = Color3.fromRGB(176, 136, 70),
+	WorkshopWall = Color3.fromRGB(92, 170, 164),
+	WorkshopTrim = Color3.fromRGB(58, 124, 126),
+	PlankLight = Color3.fromRGB(226, 184, 128),
+	RopeFiber = Color3.fromRGB(222, 200, 150),
 
 	-- Interface
 	UiPanel = Color3.fromRGB(255, 249, 236),

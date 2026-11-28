@@ -4,6 +4,61 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
+### 2026-11-27 — Cadeias produtivas, pedidos e Ilha produtiva
+#### Adicionado
+- **Pedreira e Carpintaria:** a Pedreira produz pedra. A Carpintaria transforma 2 madeira em 1 tábua, com entrada e saída. Ambas param sem madeira ou com a saída cheia. Ficam no `ProductionService` generalizado (`Production.StepConverter` e `Production.Supply`, D-041). Valores em D-042.
+- **Tábuas (`Planks`):** venda de 5 moedas, lote máximo de 200.
+- **Pedidos comerciais no píer:** 3 vagas, sequência fixa de 8 modelos, pagam cerca de 1,4 a 1,6 vez a venda direta (D-043).
+- **Estágios da ilha:** Ilha inicial → Ilha produtiva (D-044). Requisitos: Enseada Leste, 20 tábuas produzidas e 2 pedidos entregues. Benefícios: +1 máquina de cada tipo, pedidos +25% e 100 moedas.
+- **Objetivos 9 a 13** (D-045).
+- **Schema 6:** `Inputs`, `Orders` e `Stage` (D-045). Migração v5 → v6 em `Logic/PlayerMigrations`.
+- **Preço com vários recursos** e **limite por estágio** (D-042).
+- **Remotes novos:** `SupplyProducer`/`SupplyResult`, `DeliverOrder`/`OrderResult`, `RequestOrders`/`OrdersChanged`, `AdvanceStage`/`StageResult`.
+- **Modelos novos:** Pedreira com paredão em degraus, guindaste e britadeira; Carpintaria com telhado de palha, serra e funil; passadiço na faixa da Enseada.
+- **Cliente:**
+  - painel de abastecimento (`Client/Supply`);
+  - mercado com abas Vender e Pedidos;
+  - painel de estágio (`Client/Stage`);
+  - componentes reutilizáveis (`UI/Components`);
+  - `ClientState`, com o estado recebido do servidor;
+  - HUD abaixo do chat;
+  - placa do nome da ilha limitada em pixels e oculta de perto;
+  - indicadores que somem quando um prompt da máquina aparece;
+  - animação genérica Spin/Bob.
+- Arquivos novos: `src/shared/Logic/{Orders,Stages,ProfileSource}.luau`, `src/client/{Stage,State,Supply,WorldGui}/`, `src/client/UI/Components.luau`, `tests/Logic/Chains.spec.luau`.
+
+#### Segurança
+- **Perfil congelado** no `DataService` após cada carga e cada `Mutate` (D-046). `Read` e `Mutate` não podem esperar (yield).
+- **`FreshProfile` só no Studio**, decidido por `Logic/ProfileSource` (D-046). Fora do Studio o atributo é ignorado.
+
+#### Corrigido
+- **Resto de areia ao liberar a expansão:** a expansão é apagada por inteiro, com área e faixa de areia, e a ilha principal é moldada de novo com a mesma semente (D-047, P-022).
+
+#### Verificado
+- TestEZ: **152 aprovados, 0 falhas** (129 anteriores + 23 novos em `Chains.spec` e `PlayerMigrations.spec`).
+- No Studio (Rojo conectado), pelos remotes reais:
+  - Migração v5 → v6 com objetivos retomados no 9.
+  - Entrega de pedido `Ok` e repetição `Stale`; vaga inválida recusada.
+  - Pedreira comprada; segunda compra barrada (`Limit`).
+  - Carpintaria comprada e abastecida (30); segundo abastecimento `InputFull`.
+  - Consumo exato de 2 madeira por tábua (entrada + 2 × saída constante).
+  - Parada sem madeira (`Starved`).
+  - Recolher tábuas e pedra; venda de tábuas.
+  - Melhoria da Pedreira para o nível 2.
+  - Estágio 2 liberado uma vez (+100 moedas); repetição `MaxStage`.
+  - Bônus de +25% nos pedidos.
+  - Persistência após reiniciar.
+  - Limpeza do terreno ao liberar a ilha: área e faixa voltam ao mar.
+  - Painel de estágio com requisitos no `FreshProfile`.
+- Builds do Rojo (produção e teste) OK.
+
+#### Não verificado
+- **Aparência 3D** dos modelos novos: aguardando capturas do dono (P-016).
+- **Resoluções 1366×768, 1920×1080 e celular:** só a lógica de escala foi verificada.
+- **Dois jogadores ao mesmo tempo.**
+- **Lint e tipos:** StyLua, Selene e luau-analyze não instalados.
+- **Balanceamento com jogadores:** os valores de D-042 são provisórios.
+
 ### 2026-11-27 — Economia, melhorias, expansão e objetivos
 #### Adicionado
 - **Pedra (`Stone`):** 3 rochas coletáveis na ilha e 2 na expansão. Cada coleta rende 2 pedras; recuperação de 12 s (D-034, provisório).

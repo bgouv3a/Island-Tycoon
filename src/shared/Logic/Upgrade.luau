@@ -18,10 +18,15 @@ export type Level = {
 	Amount: number,
 	IntervalSeconds: number,
 	Capacity: number,
+	InputCapacity: number?,
 	Cost: Cost.Cost?,
 }
 
-export type Producer = { ResourceId: string, Levels: { Level } }
+export type Producer = {
+	ResourceId: string,
+	Input: { ResourceId: string, Amount: number }?, -- matéria-prima por ciclo (máquinas que processam)
+	Levels: { Level },
+}
 export type Producers = { [string]: Producer } -- estrutura → produtor
 
 export type Request = {
@@ -47,11 +52,15 @@ end
 function Upgrade.RuleFor(producer: Producer, level: number): Production.Rule
 	local index = math.clamp(level, 1, #producer.Levels)
 	local entry = producer.Levels[index]
+	local input = producer.Input
 	return {
 		ResourceId = producer.ResourceId,
 		Amount = entry.Amount,
 		IntervalSeconds = entry.IntervalSeconds,
 		Capacity = entry.Capacity,
+		InputId = if input ~= nil then input.ResourceId else nil,
+		InputAmount = if input ~= nil then input.Amount else nil,
+		InputCapacity = if input ~= nil then entry.InputCapacity else nil,
 	}
 end
 

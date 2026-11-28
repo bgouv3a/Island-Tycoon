@@ -13,6 +13,7 @@
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -30,8 +31,8 @@ local ResourcesChanged = Remotes:WaitForChild("ResourcesChanged") :: RemoteEvent
 local ResourceCollected = Remotes:WaitForChild("ResourceCollected") :: RemoteEvent
 
 local ALWAYS_VISIBLE: { [string]: boolean } = { Coins = true, Wood = true }
-local ROW_WIDTH = 168
-local ROW_HEIGHT = 34
+local ROW_WIDTH = 150
+local ROW_HEIGHT = 30
 local RETRY_SECONDS = 0.3
 local RETRY_COUNT = 6
 
@@ -70,13 +71,13 @@ local function buildRow(parent: Frame, resourceId: string, order: number): Row
 	local amount = Theme.Label(frame, "0", Theme.TitleFont, Palette.UiText)
 	amount.Name = "Amount"
 	amount.Position = UDim2.new(0, ROW_HEIGHT + 2, 0, 3)
-	amount.Size = UDim2.new(0, 62, 1, -6)
+	amount.Size = UDim2.new(0, 56, 1, -6)
 	amount.TextXAlignment = Enum.TextXAlignment.Left
 
 	local caption = Theme.Label(frame, Format.Name(resourceId), Theme.BodyFont, Palette.UiMuted)
 	caption.Name = "Caption"
-	caption.Position = UDim2.new(0, ROW_HEIGHT + 66, 0, 8)
-	caption.Size = UDim2.new(0, ROW_WIDTH - ROW_HEIGHT - 74, 1, -16)
+	caption.Position = UDim2.new(0, ROW_HEIGHT + 60, 0, 7)
+	caption.Size = UDim2.new(1, -(ROW_HEIGHT + 66), 1, -14)
 	caption.TextXAlignment = Enum.TextXAlignment.Right
 
 	return { Frame = frame, Amount = amount }
@@ -88,17 +89,19 @@ local function buildHud()
 	gui.ResetOnSpawn = false
 	gui.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 
-	-- Lateral esquerda: longe do chat (canto superior) e acima do analógico no celular.
+	-- Lateral esquerda, abaixo da janela do chat (que ocupa cerca de 25% da altura no canto superior
+	-- esquerdo em PC). No celular o chat fica recolhido, então a lista sobe para perto do topo.
+	local touchOnly = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 	local list = Instance.new("Frame")
 	list.Name = "Resources"
-	list.AnchorPoint = Vector2.new(0, 0.5)
-	list.Position = UDim2.new(0, 12, 0.36, 0)
+	list.AnchorPoint = Vector2.new(0, 0)
+	list.Position = if touchOnly then UDim2.new(0, 12, 0, 8) else UDim2.new(0, 12, 0.25, 70)
 	list.Size = UDim2.fromOffset(ROW_WIDTH, 0)
 	list.AutomaticSize = Enum.AutomaticSize.Y
 	list.BackgroundTransparency = 1
 	list.Parent = gui
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 6)
+	layout.Padding = UDim.new(0, 4)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = list
 

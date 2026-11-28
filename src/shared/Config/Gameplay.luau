@@ -58,6 +58,9 @@ local Gameplay = {
 		-- Regras por nível (quantidade, intervalo, capacidade e custo): Economy.Upgrades.
 		Producers = {
 			Sawmill = { ResourceId = "Wood", Levels = Economy.Upgrades.Sawmill },
+			Quarry = { ResourceId = "Stone", Levels = Economy.Upgrades.Quarry },
+			-- Consome Input.Amount de Input.ResourceId por ciclo; sem matéria-prima, não produz.
+			Workshop = { ResourceId = "Planks", Input = { ResourceId = "Wood", Amount = 2 }, Levels = Economy.Upgrades.Workshop },
 		},
 	},
 
@@ -94,6 +97,13 @@ local Gameplay = {
 		UpgradeRefillPerSecond = 1,
 		ExpandCapacity = 2,
 		ExpandRefillPerSecond = 0.5,
+		-- Abastecer máquinas, entregar pedidos e avançar de estágio.
+		SupplyCapacity = 4,
+		SupplyRefillPerSecond = 2,
+		DeliverCapacity = 3,
+		DeliverRefillPerSecond = 1,
+		StageCapacity = 2,
+		StageRefillPerSecond = 0.5,
 		-- Pedido do saldo inicial.
 		RequestCapacity = 3,
 		RequestRefillPerSecond = 1,

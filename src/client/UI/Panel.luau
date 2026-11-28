@@ -21,7 +21,7 @@ local HEADER = 44
 export type Panel = {
 	Body: Frame,
 	Title: TextLabel,
-	Open: (anchor: BasePart) -> (),
+	Open: (anchor: BasePart?) -> (),
 	Close: () -> (),
 	IsOpen: () -> boolean,
 	Shake: () -> (),
@@ -80,6 +80,7 @@ function Panel.Create(config: Config): Panel
 	local anchor: BasePart? = nil
 	local watch: RBXScriptConnection? = nil
 	local open = false
+	local anchored = false -- sem peça de referência (ex.: painel de estágio), só fecha por X/Esc
 
 	local function updateFit()
 		local camera = Workspace.CurrentCamera
@@ -120,8 +121,9 @@ function Panel.Create(config: Config): Panel
 		end
 	end
 
-	function result.Open(newAnchor: BasePart)
+	function result.Open(newAnchor: BasePart?)
 		anchor = newAnchor
+		anchored = newAnchor ~= nil
 		if not open then
 			open = true
 			holder.Visible = true
@@ -136,6 +138,9 @@ function Panel.Create(config: Config): Panel
 					return
 				end
 				elapsed = 0
+				if not anchored then
+					return
+				end
 				local target = anchor
 				local root = World.Root()
 				if target == nil or target.Parent == nil then

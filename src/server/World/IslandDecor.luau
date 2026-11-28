@@ -108,6 +108,18 @@ local EXPANSION_DECOR: { [string]: { Bushes: { Vector2 }, Flowers: { Vector2 } }
 	},
 }
 
+-- Passadiço da Enseada Leste: trechos de 4 studs de x = 33 a 49 ao longo de z = -5 (faixa de areia
+-- de 9 de largura) e plantas de praia nas bordas da faixa, fora do piso do passadiço.
+local BOARDWALK_X = { 33, 37, 41, 45, 49 }
+local BOARDWALK_Z = -5
+local BEACH_PLANTS: { Vector2 } = {
+	Vector2.new(35, -8.4),
+	Vector2.new(39, -1.7),
+	Vector2.new(43, -8.3),
+	Vector2.new(46.5, -1.8),
+	Vector2.new(48.5, -8.2),
+}
+
 -- Monta a decoração de uma área de expansão dentro de `parent`.
 function IslandDecor.BuildExpansion(parent: Instance, origin: Vector3, area: string, seed: number)
 	local spots = EXPANSION_DECOR[area]
@@ -125,6 +137,21 @@ function IslandDecor.BuildExpansion(parent: Instance, origin: Vector3, area: str
 	end
 	for index, spot in spots.Flowers do
 		Models.Flowers(ground(spot), seed * 23 + index).Parent = parent
+	end
+
+	-- Passadiço de madeira e corda sobre a faixa de areia, ligando a ilha à área (centro livre).
+	if area == "E1" then
+		local segments = #BOARDWALK_X - 1
+		for index = 1, segments do
+			local x = origin.X + BOARDWALK_X[index]
+			local z = origin.Z + BOARDWALK_Z
+			local y = Environment.GroundY(x + 2, z, origin.Y)
+			local segment = Models.BoardwalkSegment(CFrame.new(x, y, z), index % 2 == 1, index == segments)
+			segment.Parent = parent
+		end
+		for index, spot in BEACH_PLANTS do
+			Models.BeachPlant(ground(spot), seed * 29 + index).Parent = parent
+		end
 	end
 end
 

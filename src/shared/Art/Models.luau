@@ -432,7 +432,226 @@ local function buildSawmill(origin: CFrame, model: Model)
 	tier(5, make(model, "TierFlag", Vector3.new(0.08, 1.1, 1.8), origin * CFrame.new(4.4, 9.4, zc - 0.95), Palette.UiAccent, { CanCollide = false, Shadow = false }))
 end
 
+-- Marca uma peça de evolução: aparece quando o nível da estrutura >= `level` (ver Models.ApplyLevel).
+local function markTier(level: number, part: BasePart): BasePart
+	part:SetAttribute("MinLevel", level)
+	return part
+end
+
+-- Registra a animação da peça para o cliente: `kind` = "Spin" (rad/s, eixo X local) ou "Bob" (studs).
+local function animate(part: BasePart, kind: string, amount: number): BasePart
+	part:SetAttribute(kind, amount)
+	part:SetAttribute("BaseCFrame", part.CFrame)
+	return part
+end
+
+local DECO = { CanCollide = false, Shadow = false }
+local DECO_SHADOW = { CanCollide = false }
+
+-- Pedreira: paredão de rocha cortado em degraus, guindaste de madeira com polia, carrinho sobre trilhos,
+-- britadeira sob pórtico e blocos cortados. Silhueta de rocha cinza, sem telhado.
+-- Contrato: Base (melhoria), Output (recolher, frente direita); Drill faz Bob, Pulley gira (Spin).
+-- Níveis (4): 1 base; 2 degrau extra, bloco extra e cintas laranja; 3 segunda britadeira e lanterna;
+-- 4 acabamento dourado, bandeira e veios de minério.
+local function buildQuarry(origin: CFrame, model: Model)
+	local base = make(model, "Base", Vector3.new(9, 0.5, 8), origin * CFrame.new(0, 0.25, 0), Palette.RockDark)
+	model.PrimaryPart = base
+
+	-- Pátio de trabalho: terra cinza com borda de pedra e rochas soltas nos cantos.
+	make(model, "Yard", Vector3.new(13.4, 0.1, 12.4), origin * CFrame.new(0, 0.05, 0), Palette.QuarryYard, DECO)
+	for _, z in { -6.2, 6.2 } do
+		make(model, "YardEdge", Vector3.new(13.8, 0.3, 0.5), origin * CFrame.new(0, 0.15, z), Palette.RockLight, DECO)
+	end
+	for _, x in { -6.7, 6.7 } do
+		make(model, "YardEdge", Vector3.new(0.5, 0.3, 12.4), origin * CFrame.new(x, 0.15, 0), Palette.RockLight, DECO)
+	end
+	make(model, "YardRock", Vector3.new(1.3, 0.9, 1.1), origin * CFrame.new(-6.2, 0.45, -5.6) * CFrame.Angles(0, 0.5, 0), Palette.RockDark, DECO_SHADOW)
+	make(model, "YardRock", Vector3.new(1, 0.7, 1.2), origin * CFrame.new(6.2, 0.35, -5.7) * CFrame.Angles(0, 1.1, 0), Palette.Rock, DECO_SHADOW)
+
+	-- Paredão cortado em degraus (de frente para trás, cada degrau mais alto e mais estreito).
+	local stepColors = { Palette.Rock, Palette.RockLight, Palette.Rock, Palette.RockLight }
+	for index = 0, 3 do
+		local startZ = 0.6 + index * 0.9
+		local depth = 4 - startZ
+		local height = 1.2 * (index + 1)
+		local step = make(
+			model,
+			"Step",
+			Vector3.new(8.2 - index * 1.3, height, depth),
+			origin * CFrame.new(0, 0.5 + height / 2, startZ + depth / 2),
+			stepColors[index + 1]
+		)
+		if index == 3 then
+			step.CanCollide = false
+			markTier(2, step)
+		end
+	end
+	-- Furos de cunha na face do segundo degrau.
+	for _, x in { -1.8, 0.2 } do
+		make(model, "DrillHole", Vector3.new(0.5, 0.35, 0.12), origin * CFrame.new(x, 2.4, 1.46), Palette.MetalDark, DECO)
+	end
+
+	-- Guindaste de madeira (mastro, lança, escora, polia que gira, corda e bloco pendurado).
+	make(model, "CraneMast", Vector3.new(0.5, 6, 0.5), origin * CFrame.new(-3.4, 3.5, 0.3), Palette.Plank)
+	make(model, "CraneBoom", Vector3.new(0.4, 0.4, 3.2), origin * CFrame.new(-3.4, 6.4, -1.3), Palette.PlankDark, DECO_SHADOW)
+	make(model, "CraneBrace", Vector3.new(0.3, 0.3, 2.6), origin * CFrame.new(-3.4, 5.45, -0.7) * CFrame.Angles(0.7, 0, 0), Palette.PlankDark, DECO_SHADOW)
+	animate(make(model, "Pulley", Vector3.new(0.3, 1.2, 1.2), origin * CFrame.new(-3.4, 6.4, -2.9), Palette.MetalDark, { Shape = CYLINDER, CanCollide = false }), "Spin", 2.5)
+	make(model, "CraneRope", Vector3.new(0.1, 2.9, 0.1), origin * CFrame.new(-3.4, 4.95, -2.9), Palette.Sawdust, DECO)
+	make(model, "HoistBlock", Vector3.new(1.3, 1, 1.3), origin * CFrame.new(-3.4, 3, -2.9) * CFrame.Angles(0, 0.3, 0), Palette.RockLight, DECO_SHADOW)
+
+	-- Trilho com carrinho carregado de pedras (ao lado do guindaste).
+	for _, x in { -4, -2.8 } do
+		make(model, "Rail", Vector3.new(0.18, 0.15, 3.2), origin * CFrame.new(x, 0.575, -2.3), Palette.MetalDark, DECO)
+	end
+	for _, z in { -3.6, -2.4, -1.2 } do
+		make(model, "Sleeper", Vector3.new(2, 0.1, 0.3), origin * CFrame.new(-3.4, 0.55, z), Palette.PlankDark, DECO)
+	end
+	make(model, "CartBody", Vector3.new(1.5, 0.8, 1.8), origin * CFrame.new(-3.4, 1.15, -2.9), Palette.MetalDark, DECO_SHADOW)
+	make(model, "CartRim", Vector3.new(1.6, 0.15, 1.9), origin * CFrame.new(-3.4, 1.6, -2.9), Palette.Industrial, DECO)
+	for _, x in { -4.2, -2.6 } do
+		for _, z in { -3.5, -2.3 } do
+			make(model, "CartWheel", Vector3.new(0.2, 0.6, 0.6), origin * CFrame.new(x, 0.9, z), Palette.Metal, { Shape = CYLINDER, CanCollide = false, Shadow = false })
+		end
+	end
+	make(model, "CartStone", Vector3.new(0.9, 0.5, 0.8), origin * CFrame.new(-3.7, 1.9, -3.2) * CFrame.Angles(0, 0.4, 0), Palette.Rock, DECO)
+	make(model, "CartStone", Vector3.new(0.8, 0.5, 0.7), origin * CFrame.new(-3, 1.9, -2.6) * CFrame.Angles(0, -0.3, 0), Palette.RockDark, DECO)
+
+	-- Pórtico com britadeira (a haste sobe e desce sobre o primeiro degrau).
+	for _, x in { 0.2, 2.2 } do
+		make(model, "GantryPost", Vector3.new(0.35, 5.2, 0.35), origin * CFrame.new(x, 3.1, 0.35), Palette.Plank)
+	end
+	make(model, "GantryBeam", Vector3.new(2.4, 0.4, 1.4), origin * CFrame.new(1.2, 5.6, 0.8), Palette.PlankDark, DECO_SHADOW)
+	make(model, "Compressor", Vector3.new(1.4, 1, 1), origin * CFrame.new(1.2, 6.1, 0.8), Palette.Industrial, DECO_SHADOW)
+	animate(make(model, "Drill", Vector3.new(0.5, 2.6, 0.5), origin * CFrame.new(1.2, 3.5, 1.05), Palette.Metal, DECO_SHADOW), "Bob", 0.5)
+
+	-- Blocos cortados empilhados (direita) e na saída.
+	make(model, "CutBlock", Vector3.new(1.4, 0.9, 1.1), origin * CFrame.new(2.4, 0.95, -0.5) * CFrame.Angles(0, 0.05, 0), Palette.Rock)
+	make(model, "CutBlock", Vector3.new(1.4, 0.9, 1.1), origin * CFrame.new(3.75, 0.95, -0.5) * CFrame.Angles(0, -0.05, 0), Palette.RockDark)
+	make(model, "CutBlock", Vector3.new(1.4, 0.9, 1.1), origin * CFrame.new(3.1, 1.85, -0.5), Palette.RockLight, DECO_SHADOW)
+	make(model, "Pallet", Vector3.new(2.8, 0.2, 2.1), origin * CFrame.new(2.4, 0.6, -2.6), Palette.PlankDark, DECO)
+	make(model, "Output", Vector3.new(2.2, 1.1, 1.6), origin * CFrame.new(2.4, 1.05, -2.6), Palette.Rock)
+	for _, x in { 1.9, 2.9 } do
+		make(model, "OutputBlock", Vector3.new(0.9, 0.7, 1.2), origin * CFrame.new(x, 1.95, -2.6) * CFrame.Angles(0, (x - 2.4) * 0.3, 0), Palette.RockLight, DECO_SHADOW)
+	end
+
+	-- Nível 2: degrau extra (acima), bloco extra na pilha e cintas laranja no pórtico.
+	markTier(2, make(model, "TierBlock", Vector3.new(1.4, 0.9, 1.1), origin * CFrame.new(3.1, 2.75, -0.5), Palette.Rock, DECO_SHADOW))
+	for _, x in { 0.2, 2.2 } do
+		markTier(2, make(model, "TierBand", Vector3.new(0.6, 0.3, 0.6), origin * CFrame.new(x, 1.2, 0.35), Palette.Industrial, DECO))
+		markTier(2, make(model, "TierBand", Vector3.new(0.6, 0.3, 0.6), origin * CFrame.new(x, 4.3, 0.35), Palette.IndustrialDark, DECO))
+	end
+	-- Nível 3: segunda britadeira (pórtico prolongado) e lanterna no pórtico.
+	markTier(3, make(model, "TierPost", Vector3.new(0.35, 5.2, 0.35), origin * CFrame.new(-1.4, 3.1, 0.35), Palette.Plank, DECO_SHADOW))
+	markTier(3, make(model, "TierBeam", Vector3.new(1.6, 0.4, 1.4), origin * CFrame.new(-0.6, 5.6, 0.8), Palette.PlankDark, DECO_SHADOW))
+	markTier(3, animate(make(model, "TierDrill", Vector3.new(0.5, 2.6, 0.5), origin * CFrame.new(-0.7, 3.5, 1.05), Palette.Metal, DECO_SHADOW), "Bob", 0.4))
+	markTier(3, make(model, "TierLampArm", Vector3.new(0.15, 0.15, 0.9), origin * CFrame.new(2.2, 4.6, -0.1), Palette.PlankDark, DECO))
+	markTier(3, make(model, "TierLamp", Vector3.new(0.55, 0.55, 0.55), origin * CFrame.new(2.2, 4.4, -0.55), Palette.Marker, { Shape = BALL, CanCollide = false, Shadow = false, Material = Enum.Material.Neon }))
+	-- Nível 4: ouro no guindaste, bandeira no topo do paredão e veios de minério na rocha.
+	markTier(4, make(model, "TierGoldCap", Vector3.new(0.8, 0.25, 0.8), origin * CFrame.new(-3.4, 6.7, 0.3), Palette.Gold, DECO))
+	markTier(4, make(model, "TierGoldBand", Vector3.new(0.6, 0.4, 0.6), origin * CFrame.new(-3.4, 6.4, 0.3), Palette.GoldDark, DECO))
+	markTier(4, make(model, "TierMast", Vector3.new(0.2, 2.4, 0.2), origin * CFrame.new(0, 6.5, 3.65), Palette.GoldDark, DECO))
+	markTier(4, make(model, "TierFlag", Vector3.new(0.08, 1, 1.6), origin * CFrame.new(0, 7.1, 2.85), Palette.BuoyRed, DECO))
+	local vein = { CanCollide = false, Shadow = false, Material = Enum.Material.Neon }
+	markTier(4, make(model, "TierVein", Vector3.new(1, 0.25, 0.12), origin * CFrame.new(-1.4, 3.5, 2.36) * CFrame.Angles(0, 0, 0.4), Palette.Ore, vein))
+	markTier(4, make(model, "TierVein", Vector3.new(0.8, 0.22, 0.12), origin * CFrame.new(1.2, 3.8, 2.36) * CFrame.Angles(0, 0, -0.5), Palette.Ore, vein))
+	markTier(4, make(model, "TierCrystal", Vector3.new(0.7, 0.7, 0.7), origin * CFrame.new(-0.8, 5.65, 3.55) * CFrame.Angles(0.7, 0.7, 0), Palette.Ore, vein))
+end
+
+-- Carpintaria: oficina coberta com telhado de palha inclinado (um caimento), paredes verde-azuladas,
+-- bancada com serra circular, funil de toras na ENTRADA (frente esquerda) e pilha de tábuas na SAÍDA
+-- (frente direita). Contrato: Base, Input, Output; Saw gira (Spin); TierSaw gira no nível 3.
+-- Níveis (3): 1 base; 2 prateleira de ferramentas e lanternas; 3 segunda serra, topo dourado e flâmulas.
+local function buildWorkshop(origin: CFrame, model: Model)
+	local base = make(model, "Base", Vector3.new(9, 0.5, 8), origin * CFrame.new(0, 0.25, 0), Palette.WorkshopTrim)
+	model.PrimaryPart = base
+	for index = 0, 1 do
+		make(model, "Deck", Vector3.new(9, 0.1, 3.6), origin * CFrame.new(0, 0.53, -2 + index * 3.8), if index == 0 then Palette.PlankLight else Palette.Plank, { CanCollide = false })
+	end
+
+	-- Pátio de trabalho: areia clara com borda de madeira e estacas verde-azuladas.
+	make(model, "Yard", Vector3.new(13.4, 0.1, 12.4), origin * CFrame.new(0, 0.05, 0), Palette.WorkshopYard, DECO)
+	for _, z in { -6.2, 6.2 } do
+		make(model, "YardEdge", Vector3.new(13.8, 0.3, 0.5), origin * CFrame.new(0, 0.15, z), Palette.TrunkDark, DECO)
+	end
+	for _, x in { -6.7, 6.7 } do
+		make(model, "YardEdge", Vector3.new(0.5, 0.3, 12.4), origin * CFrame.new(x, 0.15, 0), Palette.TrunkDark, DECO)
+	end
+	for _, x in { -6.7, 6.7 } do
+		make(model, "YardStake", Vector3.new(0.4, 1.1, 0.4), origin * CFrame.new(x, 0.55, -6.2), Palette.WorkshopWall, DECO)
+	end
+
+	-- Estrutura coberta: colunas (frente mais baixa), viga, paredes de fundo e lateral esquerda.
+	for _, x in { -4, 4 } do
+		make(model, "Column", Vector3.new(0.5, 3.8, 0.5), origin * CFrame.new(x, 2.4, 0.2), Palette.WorkshopTrim)
+		make(model, "Column", Vector3.new(0.5, 5.2, 0.5), origin * CFrame.new(x, 3.1, 3.5), Palette.WorkshopTrim)
+	end
+	make(model, "Header", Vector3.new(8.6, 0.4, 0.4), origin * CFrame.new(0, 4.1, 0.2), Palette.WorkshopTrim, DECO_SHADOW)
+	make(model, "BackWall", Vector3.new(7.6, 4.9, 0.25), origin * CFrame.new(0, 2.95, 3.75), Palette.WorkshopWall)
+	make(model, "SideWall", Vector3.new(0.25, 3, 3.3), origin * CFrame.new(-3.9, 2, 2), Palette.WorkshopWall)
+	make(model, "Window", Vector3.new(1.8, 1.2, 0.1), origin * CFrame.new(0, 3.6, 3.6), Palette.Window, DECO)
+
+	-- Telhado de palha com um caimento (alto atrás, baixo na frente): placa, fiadas, franja e cumeeira.
+	local roof = origin * CFrame.new(0, 5.05, 1.65) * CFrame.Angles(-0.32, 0, 0)
+	make(model, "Roof", Vector3.new(9.8, 0.4, 5), roof, Palette.ThatchRoof)
+	for _, z in { -1.5, 0, 1.5 } do
+		make(model, "ThatchRow", Vector3.new(9.9, 0.15, 0.35), roof * CFrame.new(0, 0.27, z), Palette.ThatchDark, DECO)
+	end
+	make(model, "ThatchFringe", Vector3.new(9.9, 0.55, 0.2), roof * CFrame.new(0, -0.15, -2.5), Palette.ThatchDark, DECO_SHADOW)
+	make(model, "Ridge", Vector3.new(9.9, 0.3, 0.5), roof * CFrame.new(0, 0.2, 2.45), Palette.WorkshopTrim, DECO)
+
+	-- Bancada com serra circular (gira), proteção e tábua sendo cortada.
+	make(model, "Bench", Vector3.new(6, 0.3, 1.6), origin * CFrame.new(0, 2.05, 2), Palette.Plank)
+	for _, x in { -2.6, 2.6 } do
+		make(model, "BenchLeg", Vector3.new(0.4, 1.5, 1.4), origin * CFrame.new(x, 1.3, 2), Palette.PlankDark)
+	end
+	animate(make(model, "Saw", Vector3.new(0.12, 2.4, 2.4), origin * CFrame.new(0.8, 3, 2), Palette.Metal, { Shape = CYLINDER, CanCollide = false }), "Spin", 9)
+	make(model, "SawHub", Vector3.new(0.3, 0.6, 0.6), origin * CFrame.new(0.8, 3, 2), Palette.MetalDark, { Shape = CYLINDER, CanCollide = false })
+	make(model, "SawGuard", Vector3.new(0.5, 1, 2), origin * CFrame.new(1.2, 4.1, 2), Palette.Industrial, DECO_SHADOW)
+	make(model, "CutBoard", Vector3.new(2.2, 0.15, 0.6), origin * CFrame.new(-1.2, 2.3, 2), Palette.PlankLight, DECO)
+	make(model, "Sawdust", Vector3.new(1.8, 0.06, 1.3), origin * CFrame.new(0.8, 0.57, 2), Palette.Sawdust, DECO)
+
+	-- Calhas: da entrada até a bancada e da bancada até a saída.
+	make(model, "ChuteIn", Vector3.new(1.2, 0.2, 3.2), origin * CFrame.new(-2.7, 1.78, -0.35) * CFrame.Angles(-0.27, 0, 0), Palette.PlankDark, DECO_SHADOW)
+	make(model, "ChuteOut", Vector3.new(1.2, 0.2, 3), origin * CFrame.new(2.4, 1.78, -0.2) * CFrame.Angles(-0.18, 0, 0), Palette.PlankLight, DECO_SHADOW)
+
+	-- ENTRADA: caixa de toras com funil (quatro abas inclinadas) e toras para fora.
+	make(model, "Input", Vector3.new(2.2, 1.1, 2.2), origin * CFrame.new(-3, 1.05, -2.4), Palette.TrunkDark)
+	for _, side in { -1, 1 } do
+		make(model, "Funnel", Vector3.new(2.6, 0.15, 0.9), origin * CFrame.new(-3, 1.9, -2.4 + side * 1.1) * CFrame.Angles(-side * 0.6, 0, 0), Palette.WorkshopWall, DECO_SHADOW)
+		make(model, "Funnel", Vector3.new(0.9, 0.15, 2.6), origin * CFrame.new(-3 + side * 1.1, 1.9, -2.4) * CFrame.Angles(0, 0, side * 0.6), Palette.WorkshopWall, DECO_SHADOW)
+	end
+	for _, x in { -3.5, -2.8 } do
+		make(model, "InLog", Vector3.new(1.8, 0.7, 0.7), origin * CFrame.new(x, 2.1, -2.4) * CFrame.Angles(0, math.pi / 2, 0), Palette.Trunk, { Shape = CYLINDER, CanCollide = false, Shadow = false })
+	end
+	make(model, "InLog", Vector3.new(1.8, 0.7, 0.7), origin * CFrame.new(-3.15, 2.65, -2.4) * CFrame.Angles(0, math.pi / 2, 0), Palette.TrunkMid, { Shape = CYLINDER, CanCollide = false, Shadow = false })
+
+	-- SAÍDA: pilha de tábuas aparelhadas, claras e alinhadas, sobre palete.
+	make(model, "Pallet", Vector3.new(2.8, 0.2, 1.9), origin * CFrame.new(2.4, 0.6, -2.6), Palette.PlankDark, DECO)
+	make(model, "Output", Vector3.new(2.2, 1.1, 1.6), origin * CFrame.new(2.4, 1.05, -2.6), Palette.PlankLight)
+	for layer = 0, 2 do
+		make(model, "Board", Vector3.new(2.5, 0.2, 1.7), origin * CFrame.new(2.4 + (layer % 2) * 0.12, 1.7 + layer * 0.22, -2.6), if layer % 2 == 0 then Palette.Plank else Palette.PlankLight, DECO)
+	end
+
+	-- Nível 2: prateleira de ferramentas na parede e lanternas nas colunas da frente.
+	markTier(2, make(model, "TierShelf", Vector3.new(3.2, 0.15, 0.5), origin * CFrame.new(-1.6, 3.9, 3.5), Palette.PlankDark, DECO))
+	markTier(2, make(model, "TierTool", Vector3.new(0.5, 0.6, 0.3), origin * CFrame.new(-2.5, 4.3, 3.5), Palette.Industrial, DECO))
+	markTier(2, make(model, "TierTool", Vector3.new(0.4, 0.5, 0.4), origin * CFrame.new(-1.6, 4.25, 3.5), Palette.Metal, DECO))
+	markTier(2, make(model, "TierTool", Vector3.new(0.5, 0.4, 0.4), origin * CFrame.new(-0.7, 4.2, 3.5), Palette.Plank, DECO))
+	for _, x in { -4, 4 } do
+		markTier(2, make(model, "TierLamp", Vector3.new(0.55, 0.55, 0.55), origin * CFrame.new(x, 3.5, -0.2), Palette.Marker, { Shape = BALL, CanCollide = false, Shadow = false, Material = Enum.Material.Neon }))
+	end
+	-- Nível 3: segunda serra (gira), cumeeira dourada e flâmulas penduradas na viga.
+	markTier(3, animate(make(model, "TierSaw", Vector3.new(0.1, 1.8, 1.8), origin * CFrame.new(-1.6, 2.95, 2), Palette.Metal, { Shape = CYLINDER, CanCollide = false }), "Spin", -6))
+	markTier(3, make(model, "TierSawHub", Vector3.new(0.25, 0.5, 0.5), origin * CFrame.new(-1.6, 2.95, 2), Palette.Industrial, { Shape = CYLINDER, CanCollide = false }))
+	markTier(3, make(model, "TierTrim", Vector3.new(10, 0.2, 0.7), roof * CFrame.new(0, 0.42, 2.45), Palette.Gold, DECO))
+	for index, x in { -1.8, 0, 1.8 } do
+		markTier(3, make(model, "TierPennant", Vector3.new(0.9, 0.9, 0.06), origin * CFrame.new(x, 3.5, -0.2), if index == 2 then Palette.Marker else Palette.Awning, DECO))
+	end
+end
+
 local STRUCTURES: { [string]: (CFrame, Model) -> () } = {
+	Quarry = buildQuarry,
+	Workshop = buildWorkshop,
 	Fence = buildFence,
 	Cabin = buildCabin,
 	Sawmill = buildSawmill,
@@ -783,6 +1002,58 @@ function Models.ExpansionSign(origin: CFrame): (Model, BasePart)
 	end
 	model.PrimaryPart = board
 	return model, board
+end
+
+-- Trecho de passadiço de praia ao longo de +X (4 studs): tábuas no chão, estacas nas bordas, corda e,
+-- opcionalmente, tochas nas duas bordas. `endPost` fecha o trecho com estacas em x = 4.
+-- Tudo sem colisão: o centro fica livre e a passagem não é bloqueada.
+function Models.BoardwalkSegment(origin: CFrame, torches: boolean, endPost: boolean): Model
+	local model = Instance.new("Model")
+	model.Name = "Passadico"
+	for index = 0, 3 do
+		make(
+			model,
+			"Plank",
+			Vector3.new(0.95, 0.18, 3.2),
+			origin * CFrame.new(index + 0.5, 0.12, 0),
+			if index % 2 == 0 then Palette.Plank else Palette.PlankDark,
+			{ CanCollide = false, Shadow = false }
+		)
+	end
+	local posts = if endPost then { 0, 4 } else { 0 }
+	for _, side in { -1.9, 1.9 } do
+		for _, x in posts do
+			local tall = torches and x == 0
+			local height = if tall then 2 else 1.3
+			make(model, "Post", Vector3.new(0.3, height, 0.3), origin * CFrame.new(x, height / 2, side), Palette.PlankDark, { CanCollide = false, Shadow = false })
+			if tall then
+				make(model, "TorchBowl", Vector3.new(0.5, 0.25, 0.5), origin * CFrame.new(x, 2.05, side), Palette.MetalDark, { CanCollide = false, Shadow = false })
+				make(model, "TorchFlame", Vector3.new(0.45, 0.45, 0.45), origin * CFrame.new(x, 2.4, side), Palette.Industrial, { Shape = BALL, CanCollide = false, Shadow = false, Material = Enum.Material.Neon })
+			end
+		end
+		make(model, "Rope", Vector3.new(4, 0.1, 0.1), origin * CFrame.new(2, 1.05, side), Palette.RopeFiber, { CanCollide = false, Shadow = false })
+	end
+	return model
+end
+
+-- Planta de praia: roseta de folhas longas e inclinadas para fora (sem colisão).
+function Models.BeachPlant(origin: CFrame, seed: number): Model
+	local rng = Random.new(seed)
+	local model = Instance.new("Model")
+	model.Name = "PlantaPraia"
+	local colors = { Palette.Leaf, Palette.LeafLight, Palette.GrassDark }
+	for index = 1, 5 do
+		local yaw = (index / 5) * math.pi * 2 + rng:NextNumber(-0.2, 0.2)
+		make(
+			model,
+			"Blade",
+			Vector3.new(0.3, 0.08, rng:NextNumber(1.3, 1.8)),
+			origin * CFrame.Angles(0, yaw, 0) * CFrame.new(0, 0.6, -0.55) * CFrame.Angles(0.65, 0, 0),
+			colors[(index % 3) + 1],
+			{ CanCollide = false, Shadow = false }
+		)
+	end
+	return model
 end
 
 -- Boia flutuante: bola turquesa com faixa clara e topo vermelho (marca o contorno de uma área).

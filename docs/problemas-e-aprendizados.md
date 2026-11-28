@@ -122,6 +122,18 @@ Registrar aqui bugs, armadilhas e lições. Para cada item: sintoma, causa, solu
 - **Solução:** inspecionar o estado do servidor pelo Workspace (atributos públicos) ou pelos remotes, e não por `require` dos serviços.
 - **Como evitar:** não usar `require` de serviços do servidor para inspecionar estado. Validar por dentro do jogo ou pelos remotes.
 
+### P-021 — Tabela do perfil exposta por `Read` (resolvido)
+- **Sintoma:** `DataService.Read` (D-039) devolvia a tabela viva do perfil. Um consumidor podia alterá-la fora de `Mutate`, e a alteração seria salva junto com o perfil (ver P-010).
+- **Causa:** `Read` não copiava a tabela, para evitar custo em caminhos frequentes (D-039). Nada impedia a escrita.
+- **Solução:** D-046. Os dados são congelados (`DeepCopy.Freeze`) após cada carga e cada `Mutate`, então alterar a tabela gera erro. `Read` roda o leitor numa corrotina, que é encerrada com erro se esperar.
+- **Como evitar:** toda escrita passa por `Mutate`. Quem usa `Read` não guarda a referência nem espera dentro do leitor.
+
+### P-022 — Resto de areia ao liberar a expansão (resolvido)
+- **Sintoma:** ao liberar a ilha, a área da expansão voltava ao mar, mas ficava um resto de areia junto à praia.
+- **Causa:** a limpeza não apagava a faixa de areia que liga a expansão à ilha.
+- **Solução:** D-047. A expansão é apagada por inteiro (área e faixa), e a ilha principal é moldada de novo com a mesma semente, voltando ao original.
+- **Como evitar:** ao criar terreno dinâmico, registrar todas as partes criadas, não só a área principal, para que a limpeza cubra tudo.
+
 ## Aprendizados
 - O repositório começou sem commits. Fazer o primeiro commit antes de depender do histórico Git para revisar mudanças.
 - Versões de dependências devem ser verificadas nas fontes oficiais (índice do Wally, releases do GitHub) e registradas com hash.

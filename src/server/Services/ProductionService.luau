@@ -13,6 +13,10 @@
 	- As estruturas vêm do BuildService (OnPlaced/GetStructure). Este serviço só publica o estado
 	  no modelo (atributos Stored, Capacity, Full, Amount, IntervalSeconds, Level, MaxLevel) e cria
 	  os prompts de coleta e de melhoria.
+	- Máquinas que processam (ex.: Carpintaria, Gameplay.Production.Producers[..].Input) têm estoque
+	  de entrada salvo (Inputs). O jogador abastece com SupplyProducer; cada ciclo consome a
+	  matéria-prima no mesmo passo em que produz (Production.StepConverter). Sem matéria-prima ou
+	  sem espaço, a máquina para (atributos Starved/Full).
 	- Custo: o relógio lê o perfil sem copiar (DataService.Read) e faz no máximo uma mutação por
 	  jogador e por passo, só quando algo foi produzido, qualquer que seja o número de máquinas.
 ]]
@@ -22,6 +26,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Gameplay = require(Shared.Config.Gameplay)
+local Economy = require(Shared.Config.Economy)
 local Production = require(Shared.Logic.Production)
 local Upgrade = require(Shared.Logic.Upgrade)
 local Stats = require(Shared.Logic.Stats)
@@ -42,6 +47,7 @@ local ProductionService = {}
 local initialized = false
 local resultRemote: RemoteEvent? = nil
 local upgradeRemote: RemoteEvent? = nil
+local supplyRemote: RemoteEvent? = nil
 -- Progresso (segundos) até a próxima unidade, por jogador e ponto. Só memória.
 local progress: { [Player]: { [string]: number } } = {}
 
@@ -76,10 +82,19 @@ local function siteRule(data: { [string]: any }, siteId: string): (Production.Ru
 end
 
 -- Publica o estado no modelo: o cliente desenha a barra, o nível e o aviso de cheio a partir disso.
-local function publish(model: Model, stored: number, rule: Production.Rule, level: number, maxLevel: number)
+local function publish(model: Model, stored: number, input: number, rule: Production.Rule, level: number, maxLevel: number)
 	model:SetAttribute("Stored", stored)
 	model:SetAttribute("Capacity", rule.Capacity)
-	model:SetAttribute("Full", stored >= rule.Capacity)
+	-- Máquina que processa só roda com espaço para um ciclo inteiro; as outras enchem até o limite.
+	model:SetAttribute("Full", if rule.InputId ~= nil then stored + rule.Amount > rule.Capacity else stored >= rule.Capacity)
+	model:SetAttribute("OutputId", rule.ResourceId)
+	if rule.InputId ~= nil then
+		model:SetAttribute("InputId", rule.InputId)
+		model:SetAttribute("Input", input)
+		model:SetAttribute("InputCapacity", rule.InputCapacity)
+		model:SetAttribute("InputAmount", rule.InputAmount)
+		model:SetAttribute("Starved", input < (rule.InputAmount or 0))
+	end
 	model:SetAttribute("Amount", rule.Amount)
 	model:SetAttribute("IntervalSeconds", rule.IntervalSeconds)
 	model:SetAttribute("MaxLevel", maxLevel)
@@ -91,7 +106,12 @@ local function publish(model: Model, stored: number, rule: Production.Rule, leve
 	local prompt = if part ~= nil then part:FindFirstChild("HarvestPrompt") else nil
 	if prompt ~= nil and prompt:IsA("ProximityPrompt") then
 		prompt.Enabled = stored > 0
-		prompt.ActionText = `Recolher {stored} de {Gameplay.Resources.WoodName}`
+		prompt.ActionText = `Recolher {stored} de {Economy.Resources[rule.ResourceId].Name}`
+	end
+	local hopper = model:FindFirstChild("Input", true)
+	local supply = if hopper ~= nil then hopper:FindFirstChild("SupplyPrompt") else nil
+	if supply ~= nil and supply:IsA("ProximityPrompt") and rule.InputCapacity ~= nil then
+		supply.Enabled = input < rule.InputCapacity
 	end
 	local base = model.PrimaryPart
 	local upgrade = if base ~= nil then base:FindFirstChild("UpgradePrompt") else nil
@@ -109,7 +129,7 @@ local function publishFor(player: Player, siteId: string)
 	DataService.Read(player, function(data)
 		local rule, level, maxLevel = siteRule(data, siteId)
 		if rule ~= nil then
-			publish(model, Production.Stored(data.Storage, siteId, rule), rule, level, maxLevel)
+			publish(model, Production.Stored(data.Storage, siteId, rule), Production.Input(data.Inputs, siteId, rule), rule, level, maxLevel)
 		end
 		return true
 	end)
@@ -151,7 +171,17 @@ local function onPlaced(slot: number, siteId: string, structureId: string, model
 		prompt.UIOffset = Vector2.new(0, 72)
 	end
 
-	publish(model, 0, Upgrade.RuleFor(producer, 1), 1, #producer.Levels)
+	-- Abastecimento: o prompt abre o painel no cliente; o pedido é SupplyProducer.
+	local hopper = model:FindFirstChild("Input", true)
+	if producer.Input ~= nil and hopper ~= nil and hopper:IsA("BasePart") and hopper:FindFirstChild("SupplyPrompt") == nil then
+		local prompt = addPrompt(hopper, "SupplyPrompt", name, siteId)
+		prompt.ActionText = `Abastecer com {Economy.Resources[producer.Input.ResourceId].Name}`
+		prompt.KeyboardKeyCode = Enum.KeyCode.G
+		prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
+		prompt.UIOffset = Vector2.new(0, -72)
+	end
+
+	publish(model, 0, 0, Upgrade.RuleFor(producer, 1), 1, #producer.Levels)
 	local owner = ownerOf(slot)
 	if owner ~= nil then
 		publishFor(owner, siteId)
@@ -162,10 +192,15 @@ end
 local function onLoaded(player: Player)
 	DataService.Mutate(player, function(data)
 		local clean: Production.Storage = {}
+		local inputs: { [string]: number } = {}
 		for siteId, rule in Upgrade.SiteRules(data.Buildings, data.Levels, PRODUCERS) do
 			clean[siteId] = Production.Stored(data.Storage, siteId, rule)
+			if rule.InputId ~= nil then
+				inputs[siteId] = Production.Input(data.Inputs, siteId, rule)
+			end
 		end
 		data.Storage = clean
+		data.Inputs = inputs
 	end)
 	if player.Parent ~= Players then
 		return -- saiu durante o carregamento: não cria estado que nunca seria limpo
@@ -190,15 +225,25 @@ local function tickPlayer(player: Player, dt: number)
 		return
 	end
 
-	local changes: { [string]: number } = {}
+	type Change = { Stored: number, Input: number?, Produced: number, ResourceId: string }
+	local changes: { [string]: Change } = {}
 	local any = DataService.Read(player, function(data)
 		local produced = false
 		for siteId, rule in Upgrade.SiteRules(data.Buildings, data.Levels, PRODUCERS) do
 			local stored = Production.Stored(data.Storage, siteId, rule)
-			local newStored, newProgress, amount = Production.Step(stored, playerProgress[siteId] or 0, dt, rule)
+			local progressNow = playerProgress[siteId] or 0
+			local newStored, newProgress, amount, newInput
+			if rule.InputId ~= nil then
+				local input = Production.Input(data.Inputs, siteId, rule)
+				local consumed
+				newStored, newInput, newProgress, amount, consumed = Production.StepConverter(stored, input, progressNow, dt, rule)
+				assert(amount == 0 or consumed > 0, "produção sem consumo de matéria-prima")
+			else
+				newStored, newProgress, amount = Production.Step(stored, progressNow, dt, rule)
+			end
 			playerProgress[siteId] = newProgress
 			if amount > 0 then
-				changes[siteId] = newStored
+				changes[siteId] = { Stored = newStored, Input = newInput, Produced = amount, ResourceId = rule.ResourceId }
 				produced = true
 			end
 		end
@@ -208,9 +253,17 @@ local function tickPlayer(player: Player, dt: number)
 		return
 	end
 
+	-- Saída, entrada e estatística mudam juntas: consumo e produção na mesma mutação.
 	local saved = DataService.Mutate(player, function(working)
-		for siteId, value in changes do
-			working.Storage[siteId] = value
+		for siteId, change in changes do
+			working.Storage[siteId] = change.Stored
+			if change.Input ~= nil then
+				if type(working.Inputs) ~= "table" then
+					working.Inputs = {}
+				end
+				working.Inputs[siteId] = change.Input
+			end
+			Stats.Add(working, change.ResourceId .. "Produced", change.Produced)
 		end
 	end)
 	if saved then
@@ -299,6 +352,47 @@ local function handleHarvest(player: Player, siteId: string)
 	end
 end
 
+local function validateSupply(siteId: any, amount: any): boolean
+	return Validate.IsString(siteId, MAX_ID_LENGTH) and type(amount) == "number" and amount == amount
+end
+
+local function handleSupply(player: Player, siteId: string, amount: number)
+	local slot = IslandService.GetSlot(player)
+	local model = if slot ~= nil then BuildService.GetStructure(slot, siteId) else nil
+	local hopper = if model ~= nil then model:FindFirstChild("Input", true) else nil
+	local request: Production.SupplyRequest = {
+		OwnerSlot = slot,
+		TargetSlot = slot or -1,
+		SiteId = siteId,
+		Amount = amount,
+		Distance = playerDistance(player, if hopper ~= nil and hopper:IsA("BasePart") then hopper else nil),
+		Reach = Gameplay.Production.ReachStuds,
+	}
+
+	local result: string = "NotLoaded"
+	local moved = 0
+	local saved = DataService.Mutate(player, function(data)
+		local rules: Production.Rules = {}
+		local rule = siteRule(data, siteId)
+		local structureId = data.Buildings[siteId]
+		if rule ~= nil and type(structureId) == "string" then
+			rules[structureId] = rule
+		end
+		result, moved = Production.Supply(data :: any, request, rules)
+	end)
+	if not saved then
+		result, moved = "NotLoaded", 0
+	end
+	if result == "Ok" then
+		publishFor(player, siteId)
+		IslandService.SendSnapshot(player)
+	end
+	local remote = supplyRemote
+	if remote ~= nil then
+		remote:FireClient(player, siteId, result, moved)
+	end
+end
+
 local function handleUpgrade(player: Player, siteId: string)
 	local slot = IslandService.GetSlot(player)
 	local model = if slot ~= nil then BuildService.GetStructure(slot, siteId) else nil
@@ -347,6 +441,11 @@ function ProductionService.Init()
 
 	resultRemote = NetService.CreateOutgoing("HarvestResult")
 	upgradeRemote = NetService.CreateOutgoing("UpgradeResult")
+	supplyRemote = NetService.CreateOutgoing("SupplyResult")
+	NetService.Register("SupplyProducer", validateSupply, handleSupply, {
+		Capacity = Gameplay.Remotes.SupplyCapacity,
+		RefillPerSecond = Gameplay.Remotes.SupplyRefillPerSecond,
+	})
 	NetService.Register("HarvestProduction", validateSite, handleHarvest, {
 		Capacity = Gameplay.Remotes.HarvestCapacity,
 		RefillPerSecond = Gameplay.Remotes.HarvestRefillPerSecond,

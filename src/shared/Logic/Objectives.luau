@@ -20,11 +20,12 @@ local Objectives = {}
 export type Definition = {
 	Id: string,
 	Text: string,
-	Kind: string, -- "Stat" | "Buildings" | "Producers" | "Level" | "Expansion"
+	Kind: string, -- "Stat" | "Buildings" | "Producers" | "Level" | "Expansion" | "Structure" | "Stage"
 	Key: string?,
 	Target: number,
 	Reward: Cost.Cost,
 	Guide: string,
+	GuideKey: string?,
 }
 
 export type Context = { Producers: Upgrade.Producers }
@@ -65,6 +66,14 @@ function Objectives.Progress(definition: Definition, data: { [string]: any }, co
 				end
 			end
 		end
+	elseif kind == "Structure" and definition.Key ~= nil then
+		local key = definition.Key
+		value = count(data.Buildings, function(id)
+			return id == key
+		end)
+	elseif kind == "Stage" then
+		local stage = data.Stage
+		value = if type(stage) == "number" and stage == stage then stage else 1
 	elseif kind == "Expansion" and definition.Key ~= nil then
 		local expansions = data.Expansions
 		value = if type(expansions) == "table" and expansions[definition.Key] == true then 1 else 0

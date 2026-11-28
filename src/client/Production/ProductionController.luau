@@ -1,10 +1,12 @@
 --!strict
 --[[
-	Interface e feedback da produção (Serraria). Não decide nada: o cliente só pede o recolhimento
-	(HarvestProduction) e o saldo exibido é sempre o que o servidor envia.
+	Interface e feedback da produção (Serraria, Pedreira, Carpintaria). Não decide nada: o cliente só
+	pede o recolhimento (HarvestProduction) e o saldo exibido é sempre o que o servidor envia.
 
-	Feedback: indicador de estoque sobre a construção (N/capacidade, barra, "Cheio!"), animação
-	de lâmina, roda e tora enquanto produz, serragem, popups e som ao recolher.
+	Feedback: indicador sobre o telhado (entrada e saída nas máquinas que processam, barra, "Cheio!",
+	"Sem madeira"), animação de lâmina, roda, tora e peças com atributo Spin/Bob enquanto a máquina
+	trabalha (nem cheia, nem sem matéria-prima), serragem, popups e som ao recolher.
+	O indicador some enquanto um prompt da mesma máquina está visível (evita sobreposição).
 	Tudo é local: peças e partículas criadas/movidas aqui não afetam o servidor.
 ]]
 
@@ -22,25 +24,33 @@ local Audio = require(Shared.Config.Audio)
 local Palette = require(Shared.Art.Palette)
 local Popup = require(script.Parent.Parent.UI.Popup)
 local Theme = require(script.Parent.Parent.UI.Theme)
+local Components = require(script.Parent.Parent.UI.Components)
 local Effects = require(script.Parent.Parent.UI.Effects)
+local Format = require(script.Parent.Parent.UI.Format)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local HarvestProduction = Remotes:WaitForChild("HarvestProduction") :: RemoteEvent
 local HarvestResult = Remotes:WaitForChild("HarvestResult") :: RemoteEvent
 
-local ANIMATE_DISTANCE = 120 -- só anima serrarias perto da câmera
+local ANIMATE_DISTANCE = 120 -- só anima máquinas perto da câmera
 local ANIMATE_DELAY = 1.5 -- espera o fim de Effects.BuildIn
 local RESOLVE_RETRY_SECONDS = 0.5
+local RESOLVE_WINDOW_SECONDS = 8 -- depois disso, só retenta se algo essencial faltar
 local DEFAULT_CAPACITY = 30
 local BLADE_SPEED = 9 -- rad/s (nível 1)
 local SPEED_PER_LEVEL = 0.35 -- cada nível acelera a animação em 35%
 local WHEEL_SPEED = 3 -- rad/s
 local LOG_AMPLITUDE = 0.3 -- studs para cada lado (curso total de 0,6)
 local LOG_SPEED = 2.2 -- rad/s
+local BOB_SPEED = 3 -- rad/s do vaivém de peças com atributo Bob
 local PULSE_SPEED = 7 -- rad/s do texto "Cheio!"
+local INDICATOR_HEIGHT = 9 -- studs acima do centro da máquina: acima do telhado
+local INDICATOR_DISTANCE = 60
 local SAWDUST_TEXTURE = "rbxasset://textures/particles/smoke_main.dds"
 
-type Animated = { Part: BasePart, Base: CFrame? }
+type Animated = { Part: BasePart, Base: CFrame?, Spin: number?, Bob: number? }
+
+type Section = { Label: TextLabel, Fill: Frame }
 
 type Entry = {
 	Model: Model,
@@ -48,9 +58,11 @@ type Entry = {
 	Born: number,
 	NextResolve: number,
 	IsOwn: boolean,
+	Gui: BillboardGui?,
 	Pill: Frame?,
-	Label: TextLabel?,
-	Fill: Frame?,
+	Out: Section?,
+	In: Section?,
+	Warn: Frame?,
 	Stroke: UIStroke?,
 	Badge: TextLabel?,
 	Level: number,
@@ -58,10 +70,24 @@ type Entry = {
 	Blade: Animated?,
 	Wheel: Animated?,
 	Log: Animated?,
+	Extras: { [BasePart]: Animated }, -- peças genéricas com atributo Spin ou Bob
 	Emitter: ParticleEmitter?,
 	Full: boolean?, -- nil até o primeiro refresh (sem popup no estado inicial)
+	Starved: boolean,
+	Prompts: number, -- prompts desta máquina visíveis agora
 	Animating: boolean,
 	Connections: { RBXScriptConnection },
+}
+
+type Rule = { ResourceId: string, Input: { ResourceId: string, Amount: number }? }
+local PRODUCERS: { [string]: Rule } = Gameplay.Production.Producers
+local STRUCTURES: { [string]: { Name: string } } = Gameplay.Build.Structures
+
+-- Cor das lascas ao recolher e da poeira da máquina, por recurso produzido.
+local OUTPUT_COLORS: { [string]: Color3 } = {
+	Wood = Palette.Plank,
+	Stone = Palette.RockLight,
+	Planks = Palette.PlankLight,
 }
 
 local ProductionController = {}
@@ -76,6 +102,17 @@ local function isOwnModel(model: Model): boolean
 	local builds = model.Parent
 	local island = if builds ~= nil then builds.Parent else nil
 	return island ~= nil and island:GetAttribute("OwnerUserId") == Players.LocalPlayer.UserId
+end
+
+local function ruleOf(model: Model): Rule?
+	local producerId = model:GetAttribute("Producer")
+	return if type(producerId) == "string" then PRODUCERS[producerId] else nil
+end
+
+local function structureName(model: Model): string
+	local producerId = model:GetAttribute("Producer")
+	local structure = if type(producerId) == "string" then STRUCTURES[producerId] else nil
+	return if structure ~= nil then structure.Name else "Máquina"
 end
 
 -- Peça do indicador e do prompt: "Output", ou a peça principal, ou a primeira peça.
@@ -108,42 +145,32 @@ local function readStock(model: Model): (number, number, boolean)
 		full == true
 end
 
-local function buildIndicator(entry: Entry, output: BasePart)
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "ProductionIndicator"
-	gui.Size = UDim2.fromScale(7, 2.7)
-	gui.StudsOffset = Vector3.new(0, 5.4, 0)
-	gui.LightInfluence = 0
-	gui.MaxDistance = 80
-	gui.Adornee = output
-
-	local pill = Instance.new("Frame")
-	pill.Name = "Pill"
-	pill.AnchorPoint = Vector2.new(0.5, 0.5)
-	pill.Position = UDim2.fromScale(0.5, 0.56)
-	pill.Size = UDim2.fromScale(1, 0.82)
-	pill.BackgroundColor3 = Palette.UiPanel
-	pill.Parent = gui
-	Theme.Corner(pill, UDim.new(0.5, 0))
-	local stroke = Theme.Stroke(pill, Palette.UiWood, 3)
+-- Uma seção do indicador: ícone do recurso, quantidade e barra. `x`/`width` em fração do indicador.
+local function buildSection(pill: Frame, resourceId: string, x: number, width: number, barColor: Color3): Section
+	local section = Instance.new("Frame")
+	section.Name = `Section{resourceId}`
+	section.BackgroundTransparency = 1
+	section.Position = UDim2.fromScale(x, 0)
+	section.Size = UDim2.fromScale(width, 1)
+	section.Parent = pill
 
 	local iconHolder = Instance.new("Frame")
 	iconHolder.Name = "Icon"
 	iconHolder.AnchorPoint = Vector2.new(0, 0.5)
-	iconHolder.Position = UDim2.fromScale(0.04, 0.5)
-	iconHolder.Size = UDim2.fromScale(0.27, 0.8)
+	iconHolder.Position = UDim2.fromScale(0.05, 0.5)
+	iconHolder.Size = UDim2.fromScale(0.3, 0.8)
 	iconHolder.BackgroundColor3 = Color3.fromRGB(255, 232, 196)
-	iconHolder.Parent = pill
+	iconHolder.Parent = section
 	Theme.Corner(iconHolder, UDim.new(0.5, 0))
 	local iconRatio = Instance.new("UIAspectRatioConstraint")
 	iconRatio.AspectRatio = 1
 	iconRatio.Parent = iconHolder
-	Theme.WoodIcon(iconHolder).Size = UDim2.fromScale(0.82, 0.82)
+	Theme.ResourceIcon(iconHolder, resourceId).Size = UDim2.fromScale(0.82, 0.82)
 
-	local label = Theme.Label(pill, "0", Theme.TitleFont, Palette.UiTextLight)
+	local label = Theme.Label(section, "0", Theme.TitleFont, Palette.UiTextLight)
 	label.Name = "Amount"
-	label.Position = UDim2.fromScale(0.34, 0.06)
-	label.Size = UDim2.fromScale(0.6, 0.56)
+	label.Position = UDim2.fromScale(0.4, 0.06)
+	label.Size = UDim2.fromScale(0.58, 0.56)
 	label.TextStrokeColor3 = Palette.UiPanelDark
 	label.TextStrokeTransparency = 0
 	local labelLimit = label:FindFirstChildOfClass("UITextSizeConstraint")
@@ -151,28 +178,78 @@ local function buildIndicator(entry: Entry, output: BasePart)
 		labelLimit.MaxTextSize = 60
 	end
 
-	local track = Instance.new("Frame")
-	track.Name = "Track"
-	track.Position = UDim2.fromScale(0.36, 0.68)
-	track.Size = UDim2.fromScale(0.56, 0.2)
-	track.BackgroundColor3 = Palette.UiNeutral
-	track.Parent = pill
-	Theme.Corner(track, UDim.new(0.5, 0))
-	Theme.Stroke(track, Palette.UiPanelDark, 1.5)
+	local bar = Components.ProgressBar(section)
+	bar.Track.Position = UDim2.fromScale(0.4, 0.68)
+	bar.Track.Size = UDim2.fromScale(0.56, 0.2)
+	Theme.Stroke(bar.Track, Palette.UiPanelDark, 1.5)
+	bar.Set(0, nil, barColor)
+	return { Label = label, Fill = bar.Fill }
+end
 
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.Size = UDim2.fromScale(0, 1)
-	fill.BackgroundColor3 = Palette.UiGood
-	fill.Parent = track
-	Theme.Corner(fill, UDim.new(0.5, 0))
+local function buildIndicator(entry: Entry, anchor: BasePart)
+	local rule = ruleOf(entry.Model)
+	local processes = rule ~= nil and rule.Input ~= nil
+
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "ProductionIndicator"
+	gui.Size = UDim2.fromScale(if processes then 10 else 7, 3.8)
+	-- Acima do telhado e centrado na máquina: longe dos prompts, que ficam junto das peças de baixo.
+	gui.StudsOffset = Vector3.new(0, INDICATOR_HEIGHT, 0)
+	gui.LightInfluence = 0
+	gui.MaxDistance = INDICATOR_DISTANCE
+	gui.AlwaysOnTop = false
+	gui.Adornee = anchor
+
+	local pill = Instance.new("Frame")
+	pill.Name = "Pill"
+	pill.AnchorPoint = Vector2.new(0.5, 0)
+	pill.Position = UDim2.fromScale(0.5, 0.05)
+	pill.Size = UDim2.fromScale(1, 0.62)
+	pill.BackgroundColor3 = Palette.UiPanel
+	pill.Parent = gui
+	Theme.Corner(pill, UDim.new(0.5, 0))
+	local stroke = Theme.Stroke(pill, Palette.UiWood, 3)
+
+	local outputId = if rule ~= nil then rule.ResourceId else Gameplay.Resources.WoodId
+	local outSection: Section
+	local inSection: Section? = nil
+	if processes and rule ~= nil and rule.Input ~= nil then
+		inSection = buildSection(pill, rule.Input.ResourceId, 0, 0.45, Palette.UiWood)
+		local arrow = Theme.Label(pill, "→", Theme.TitleFont, Palette.UiWood)
+		arrow.Name = "Arrow"
+		arrow.AnchorPoint = Vector2.new(0.5, 0.5)
+		arrow.Position = UDim2.fromScale(0.5, 0.5)
+		arrow.Size = UDim2.fromScale(0.1, 0.6)
+		outSection = buildSection(pill, outputId, 0.55, 0.45, Palette.UiGood)
+	else
+		outSection = buildSection(pill, outputId, 0, 1, Palette.UiGood)
+	end
+
+	-- Aviso de falta de matéria-prima, logo abaixo da pílula.
+	local warn = Instance.new("Frame")
+	warn.Name = "Warn"
+	warn.AnchorPoint = Vector2.new(0.5, 0)
+	warn.Position = UDim2.fromScale(0.5, 0.7)
+	warn.Size = UDim2.fromScale(0.62, 0.26)
+	warn.BackgroundColor3 = Palette.UiBad
+	warn.Visible = false
+	warn.Parent = gui
+	Theme.Corner(warn, UDim.new(0.5, 0))
+	Theme.Stroke(warn, Color3.fromRGB(176, 60, 54), 2.5)
+	local warnText = Theme.Label(warn, "Sem matéria-prima", Theme.TitleFont, Palette.UiTextLight)
+	warnText.Name = "Text"
+	warnText.Position = UDim2.fromScale(0.06, 0.08)
+	warnText.Size = UDim2.fromScale(0.88, 0.84)
+	if rule ~= nil and rule.Input ~= nil then
+		warnText.Text = `Sem {Format.Name(rule.Input.ResourceId):lower()}`
+	end
 
 	-- Selo de nível, sobre a borda superior esquerda.
 	local badge = Instance.new("Frame")
 	badge.Name = "LevelBadge"
 	badge.AnchorPoint = Vector2.new(0, 0.5)
-	badge.Position = UDim2.fromScale(0.03, 0.12)
-	badge.Size = UDim2.fromScale(0.3, 0.3)
+	badge.Position = UDim2.fromScale(0.02, 0.05)
+	badge.Size = UDim2.fromScale(if processes then 0.17 else 0.24, 0.26)
 	badge.BackgroundColor3 = Palette.UiAccent
 	badge.Parent = gui
 	Theme.Corner(badge, UDim.new(0.5, 0))
@@ -183,30 +260,70 @@ local function buildIndicator(entry: Entry, output: BasePart)
 	badgeText.TextStrokeColor3 = Palette.UiAccentDark
 	badgeText.TextStrokeTransparency = 0
 
-	gui.Parent = output
+	gui.Enabled = entry.Prompts == 0
+	gui.Parent = anchor
+	entry.Gui = gui
 	entry.Pill = pill
-	entry.Label = label
-	entry.Fill = fill
+	entry.Out = outSection
+	entry.In = inSection
+	entry.Warn = warn
 	entry.Stroke = stroke
 	entry.Badge = badgeText
 end
 
+local function setSection(section: Section, text: string, ratio: number, color: Color3, textColor: Color3)
+	section.Label.Text = text
+	section.Label.TextColor3 = textColor
+	TweenService:Create(section.Fill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.fromScale(math.clamp(ratio, 0, 1), 1) })
+		:Play()
+	section.Fill.BackgroundColor3 = color
+end
+
 local function refresh(entry: Entry)
-	local label = entry.Label
-	local fill = entry.Fill
+	local out = entry.Out
 	local stroke = entry.Stroke
-	if label == nil or fill == nil or stroke == nil then
+	if out == nil or stroke == nil then
 		return
 	end
-	local stored, capacity, full = readStock(entry.Model)
-	local ratio = math.clamp(stored / capacity, 0, 1)
-	TweenService:Create(fill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), { Size = UDim2.fromScale(ratio, 1) }):Play()
-	fill.BackgroundColor3 = if full then Palette.UiBad else Palette.UiGood
-	stroke.Color = if full then Palette.UiBad else Palette.UiWood
-	label.TextColor3 = if full then Color3.fromRGB(255, 120, 108) else Palette.UiTextLight
+	local model = entry.Model
+	local stored, capacity, full = readStock(model)
+	setSection(
+		out,
+		if full then "Cheio!" else `{stored}/{capacity}`,
+		stored / capacity,
+		if full then Palette.UiBad else Palette.UiGood,
+		if full then Color3.fromRGB(255, 120, 108) else Palette.UiTextLight
+	)
+	if not full then
+		Theme.Scale(out.Label).Scale = 1
+	end
+
+	local starved = false
+	local input = entry.In
+	if input ~= nil then
+		local amount = model:GetAttribute("Input")
+		local inputCapacity = model:GetAttribute("InputCapacity")
+		local current = if type(amount) == "number" then amount else 0
+		local limit = if type(inputCapacity) == "number" and inputCapacity > 0 then inputCapacity else 1
+		starved = model:GetAttribute("Starved") == true
+		setSection(
+			input,
+			`{current}/{limit}`,
+			current / limit,
+			if starved then Palette.UiBad else Palette.UiWood,
+			if starved then Color3.fromRGB(255, 120, 108) else Palette.UiTextLight
+		)
+	end
+	entry.Starved = starved
+	local warn = entry.Warn
+	if warn ~= nil then
+		warn.Visible = starved
+	end
+	stroke.Color = if full or starved then Palette.UiBad else Palette.UiWood
+
 	local badge = entry.Badge
 	if badge ~= nil then
-		local level = entry.Model:GetAttribute("Level")
+		local level = model:GetAttribute("Level")
 		local shown = if type(level) == "number" then level else 1
 		badge.Text = `Nv {shown}`
 		if shown ~= entry.Level then
@@ -216,17 +333,33 @@ local function refresh(entry: Entry)
 			end
 		end
 	end
-	if not full then
-		label.Text = `{stored}/{capacity}`
-		Theme.Scale(label).Scale = 1
-	else
-		label.Text = "Cheio!"
-	end
 
 	if entry.Full == false and full and entry.IsOwn and entry.Output ~= nil then
-		Popup.Show(entry.Output, "Serraria cheia!", Palette.UiBad)
+		Popup.Show(entry.Output, `{structureName(model)} cheia!`, Palette.UiBad)
 	end
 	entry.Full = full
+end
+
+-- Peças com atributo Spin ou Bob (e BaseCFrame) dentro do modelo, além de Blade/Wheel/Log.
+local function scanExtras(entry: Entry)
+	local special = { Blade = true, Wheel = true, Log = true }
+	for _, descendant in entry.Model:GetDescendants() do
+		if descendant:IsA("BasePart") and entry.Extras[descendant] == nil and not special[descendant.Name] then
+			local spin = descendant:GetAttribute("Spin")
+			local bob = descendant:GetAttribute("Bob")
+			local hasSpin = type(spin) == "number"
+			local hasBob = type(bob) == "number"
+			if hasSpin or hasBob then
+				local base = descendant:GetAttribute("BaseCFrame")
+				entry.Extras[descendant] = {
+					Part = descendant,
+					Base = if typeof(base) == "CFrame" then base else nil,
+					Spin = if hasSpin then spin else nil,
+					Bob = if hasBob then bob else nil,
+				}
+			end
+		end
+	end
 end
 
 -- Cria o que depende das peças do modelo (podem chegar depois do modelo). Idempotente.
@@ -241,7 +374,7 @@ local function resolve(entry: Entry)
 		return
 	end
 	if entry.Pill == nil then
-		buildIndicator(entry, output)
+		buildIndicator(entry, model.PrimaryPart or output)
 		refresh(entry)
 	end
 	if entry.Blade == nil then
@@ -253,12 +386,15 @@ local function resolve(entry: Entry)
 	if entry.Log == nil then
 		entry.Log = findAnimated(model, "Log")
 	end
+	scanExtras(entry)
 	if entry.Emitter == nil then
 		local blade = entry.Blade
+		local rule = ruleOf(model)
+		local color = if rule ~= nil then OUTPUT_COLORS[rule.ResourceId] else nil
 		local emitter = Instance.new("ParticleEmitter")
 		emitter.Name = "Sawdust"
 		emitter.Texture = SAWDUST_TEXTURE
-		emitter.Color = ColorSequence.new(Palette.Plank)
+		emitter.Color = ColorSequence.new(color or Palette.Plank)
 		emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
 		emitter.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) })
 		emitter.Lifetime = NumberRange.new(0.6, 1)
@@ -288,6 +424,9 @@ local function stopAnimation(entry: Entry)
 	restore(entry.Blade)
 	restore(entry.Wheel)
 	restore(entry.Log)
+	for _, extra in entry.Extras do
+		restore(extra)
+	end
 end
 
 -- Base de repouso: atributo BaseCFrame, ou o CFrame atual na primeira vez (após a animação de chegada).
@@ -320,6 +459,21 @@ local function animate(entry: Entry, dt: number)
 	if log ~= nil and log.Part.Parent ~= nil then
 		log.Part.CFrame = baseOf(log) * CFrame.new(math.sin(phase * LOG_SPEED) * LOG_AMPLITUDE, 0, 0)
 	end
+	-- Peças genéricas: Spin gira no eixo X local (rad/s); Bob sobe e desce no eixo Y do mundo (studs).
+	for _, extra in entry.Extras do
+		if extra.Part.Parent ~= nil then
+			local cframe = baseOf(extra)
+			local spin = extra.Spin
+			if spin ~= nil then
+				cframe = cframe * CFrame.Angles(phase * spin, 0, 0)
+			end
+			local bob = extra.Bob
+			if bob ~= nil then
+				cframe = CFrame.new(0, math.sin(phase * BOB_SPEED) * bob, 0) * cframe
+			end
+			extra.Part.CFrame = cframe
+		end
+	end
 end
 
 local function onStep(dt: number)
@@ -330,7 +484,7 @@ local function onStep(dt: number)
 	local cameraPosition = camera.CFrame.Position
 	local now = os.clock()
 	for _, entry in entries do
-		if entry.Pill == nil or entry.Blade == nil or entry.Emitter == nil then
+		if entry.Pill == nil or entry.Emitter == nil or now - entry.Born < RESOLVE_WINDOW_SECONDS then
 			if now >= entry.NextResolve then
 				entry.NextResolve = now + RESOLVE_RETRY_SECONDS
 				resolve(entry)
@@ -339,17 +493,17 @@ local function onStep(dt: number)
 
 		local output = entry.Output
 		local near = output ~= nil and (output.Position - cameraPosition).Magnitude <= ANIMATE_DISTANCE
-		local full = entry.Full == true
-		if near and not full and now - entry.Born >= ANIMATE_DELAY then
+		local working = not (entry.Full == true) and not entry.Starved
+		if near and working and now - entry.Born >= ANIMATE_DELAY then
 			animate(entry, dt)
 		elseif entry.Animating then
 			stopAnimation(entry)
 		end
 
 		-- "Cheio!" pulsando
-		local label = entry.Label
-		if full and near and label ~= nil then
-			Theme.Scale(label).Scale = 1 + 0.1 * math.sin(now * PULSE_SPEED)
+		local out = entry.Out
+		if entry.Full == true and near and out ~= nil then
+			Theme.Scale(out.Label).Scale = 1 + 0.1 * math.sin(now * PULSE_SPEED)
 		end
 	end
 end
@@ -370,9 +524,9 @@ local function unregister(model: Model)
 	if entry.Animating then
 		stopAnimation(entry)
 	end
-	local pill = entry.Pill
-	if pill ~= nil and pill.Parent ~= nil and pill.Parent.Parent ~= nil then
-		pill.Parent:Destroy()
+	local gui = entry.Gui
+	if gui ~= nil and gui.Parent ~= nil then
+		gui:Destroy()
 	end
 	local emitter = entry.Emitter
 	if emitter ~= nil then
@@ -391,9 +545,11 @@ local function register(model: Model)
 		Born = os.clock(),
 		NextResolve = 0,
 		IsOwn = isOwnModel(model),
+		Gui = nil,
 		Pill = nil,
-		Label = nil,
-		Fill = nil,
+		Out = nil,
+		In = nil,
+		Warn = nil,
 		Stroke = nil,
 		Badge = nil,
 		Level = 1,
@@ -401,13 +557,16 @@ local function register(model: Model)
 		Blade = nil,
 		Wheel = nil,
 		Log = nil,
+		Extras = {},
 		Emitter = nil,
 		Full = nil,
+		Starved = false,
+		Prompts = 0,
 		Animating = false,
 		Connections = {},
 	}
 	entries[model] = entry
-	for _, attribute in { "Stored", "Capacity", "Full", "Level" } do
+	for _, attribute in { "Stored", "Capacity", "Full", "Level", "Input", "InputCapacity", "Starved" } do
 		table.insert(
 			entry.Connections,
 			model:GetAttributeChangedSignal(attribute):Connect(function()
@@ -460,6 +619,31 @@ local function findEntryBySite(siteId: string): Entry?
 	return nil
 end
 
+-- Máquina dona do prompt (o prompt fica numa peça de dentro do modelo).
+local function entryOfPrompt(prompt: ProximityPrompt): Entry?
+	local node: Instance? = prompt.Parent
+	while node ~= nil do
+		if node:IsA("Model") and entries[node] ~= nil then
+			return entries[node]
+		end
+		node = node.Parent
+	end
+	return nil
+end
+
+-- Enquanto um prompt da máquina está visível, o indicador some para não cobrir nem se sobrepor a ele.
+local function setPromptShown(prompt: ProximityPrompt, shown: boolean)
+	local entry = entryOfPrompt(prompt)
+	if entry == nil then
+		return
+	end
+	entry.Prompts = math.max(entry.Prompts + (if shown then 1 else -1), 0)
+	local gui = entry.Gui
+	if gui ~= nil then
+		gui.Enabled = entry.Prompts == 0
+	end
+end
+
 local function playHarvestSound(output: BasePart)
 	local sound = Instance.new("Sound")
 	sound.SoundId = Audio.Collect.Id
@@ -482,8 +666,10 @@ local function onHarvestResult(siteId: any, result: any, amount: any)
 	end
 
 	if result == "Ok" and type(amount) == "number" then
-		Popup.Show(output, `+{amount} {Gameplay.Resources.WoodName}`)
-		Effects.Burst(output.Position + Vector3.new(0, 3, 0), Palette.Plank, 14, "Chips")
+		local rule = ruleOf(entry.Model)
+		local resourceId = if rule ~= nil then rule.ResourceId else Gameplay.Resources.WoodId
+		Popup.Show(output, `+{amount} {Format.Name(resourceId)}`)
+		Effects.Burst(output.Position + Vector3.new(0, 3, 0), OUTPUT_COLORS[resourceId] or Palette.Plank, 14, "Chips")
 		Effects.Burst(output.Position + Vector3.new(0, 4, 0), Palette.UiAccent, 10, "Sparkle")
 		playHarvestSound(output)
 		local pill = entry.Pill
@@ -527,6 +713,12 @@ function ProductionController.Init()
 
 	HarvestResult.OnClientEvent:Connect(onHarvestResult)
 	ProximityPromptService.PromptTriggered:Connect(onPromptTriggered)
+	ProximityPromptService.PromptShown:Connect(function(prompt: ProximityPrompt)
+		setPromptShown(prompt, true)
+	end)
+	ProximityPromptService.PromptHidden:Connect(function(prompt: ProximityPrompt)
+		setPromptShown(prompt, false)
+	end)
 	RunService.Heartbeat:Connect(onStep)
 
 	local existing = Workspace:FindFirstChild("Islands")

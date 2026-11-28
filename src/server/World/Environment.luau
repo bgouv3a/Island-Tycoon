@@ -265,12 +265,13 @@ function Environment.ShapeExpansion(origin: Vector3, shape: ExpansionShape, rng:
 	return true
 end
 
--- Devolve ao mar a área de uma expansão (quando a ilha é liberada para outro jogador).
--- Só mexe além da praia da ilha principal; a faixa de areia junto à praia permanece.
+-- Devolve ao mar a área de uma expansão (quando a ilha é liberada para outro jogador), incluindo
+-- a faixa de areia. O corte pode alcançar a praia da ilha principal: quem chama deve moldar a
+-- ilha principal de novo (ShapeIsland com a mesma semente), que a recria exatamente igual.
 function Environment.ClearExpansion(origin: Vector3, shape: ExpansionShape)
 	local terrain = Workspace.Terrain
 	local center = origin + Vector3.new(shape.Center.X, 0, shape.Center.Y)
-	local minX = origin.X + 47 -- além da praia mais larga da ilha principal (raio 46)
+	local minX = origin.X + shape.BridgeFrom - 4 -- desde o começo da faixa de areia
 	local maxX = center.X + shape.Radius + 12
 	local half = shape.Radius + 12
 	local sizeX = maxX - minX

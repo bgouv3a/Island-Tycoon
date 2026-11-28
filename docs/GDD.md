@@ -23,11 +23,11 @@ Coletar recursos → Processar/vender → Comprar ou construir → Automatizar �
 | Base técnica (bootstrap, persistência, rede, validação) | 1 | Sem gameplay visível |
 | Recursos e coleta | 2 | Nós de recursos no mundo que reaparecem após um tempo |
 | Inventário | 2 | Itens do jogador, com limite e validação no servidor |
-| Economia | 2 | Moedas ganhas e gastas, validadas no servidor. **Provisória (2026-11-27):** Pedra, moedas, mercado no píer, melhorias da Serraria, primeira expansão e objetivos iniciais. Valores em D-034 (sujeitos a balanceamento) |
+| Economia | 2 | Moedas ganhas e gastas, validadas no servidor. **Provisória (2026-11-27):** Pedra, moedas, mercado no píer, melhorias da Serraria, primeira expansão, objetivos iniciais, cadeias produtivas (Pedreira, Carpintaria e tábuas), pedidos comerciais e estágio 2 (Ilha produtiva). Valores em D-034 e D-042 (sujeitos a balanceamento) |
 | Construção | 3 | Colocação de estruturas na ilha, com regras de espaço e custo |
 | Ilhas | 3 | Um lote por jogador, com área delimitada |
-| Automação | 4 | Máquinas que produzem itens em intervalos próprios. Começou antecipadamente com a Serraria (D-031) |
-| Progressão | 5 | Desbloqueios ligados a metas de coleta, construção e automação |
+| Automação | 4 | Máquinas que produzem itens em intervalos próprios. Começou antecipadamente com a Serraria (D-031), seguida por Pedreira e Carpintaria (D-041, D-042) |
+| Progressão | 5 | Desbloqueios ligados a metas de coleta, construção e automação. Estágio 2 (Ilha produtiva) antecipado como provisório (D-044) |
 | Social | 6 | Visitar ilhas de outros jogadores |
 
 ## 5. Estilo visual
@@ -52,6 +52,6 @@ Coletar recursos → Processar/vender → Comprar ou construir → Automatizar �
 - Trocas diretas entre jogadores e mercado global: **não definidos**. Não implementar sem aprovação.
 
 ## Perguntas em aberto
-1. Quais recursos e cadeias de produção fazem parte do MVP? *(necessário antes da Fase 2)*. **Parcial:** recursos provisórios são Madeira (D-024), Pedra e Moedas (D-034, D-035). Cadeias de produção continuam em aberto; a próxima proposta é a cadeia de tábuas (Planks) na Serraria, que depende de aprovação.
+1. Quais recursos e cadeias de produção fazem parte do MVP? *(necessário antes da Fase 2)*. **Parcial:** recursos provisórios são Madeira (D-024), Pedra e Moedas (D-034, D-035) e Tábuas (D-042). Cadeias provisórias: Pedreira (pedra) e Carpintaria (madeira → tábua), D-041 e D-042. Falta confirmar o conjunto final do MVP.
 2. Qual é o limite de jogadores por servidor desejado? *(será definido por testes de desempenho, Fase 7)*
 3. Trocas entre jogadores fazem parte do escopo? *(não definido)*

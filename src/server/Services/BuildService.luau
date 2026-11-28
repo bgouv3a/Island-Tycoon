@@ -285,6 +285,9 @@ local function handleBuild(player: Player, siteId: string, structureId: string)
 			if type(data.Levels) == "table" then
 				data.Levels[siteId] = nil
 			end
+			if type(data.Inputs) == "table" then
+				data.Inputs[siteId] = nil
+			end
 		end
 	end)
 	if not saved then

@@ -15,6 +15,7 @@ local Audio = require(Shared.Config.Audio)
 local Palette = require(Shared.Art.Palette)
 local Popup = require(script.Parent.Parent.UI.Popup)
 local Theme = require(script.Parent.Parent.UI.Theme)
+local Components = require(script.Parent.Parent.UI.Components)
 local Effects = require(script.Parent.Parent.UI.Effects)
 local Format = require(script.Parent.Parent.UI.Format)
 local Panel = require(script.Parent.Parent.UI.Panel)
@@ -87,30 +88,10 @@ local function clearCosts()
 	end
 end
 
--- Uma pastilha por recurso do custo: ícone e "tenho/preciso", verde se cobre, vermelho se não.
+-- Uma pastilha por recurso do custo: ícone e "tenho/preciso", verde se cobre, vermelha se não.
 local function addCostChip(row: Frame, resourceId: string, need: number, order: number)
-	local have = math.floor(ResourceController.Get(resourceId))
-	local ok = have >= need
-	local chip = Instance.new("Frame")
-	chip.LayoutOrder = order
-	chip.Size = UDim2.fromOffset(126, 38)
-	chip.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	chip.Parent = row
-	Theme.Corner(chip, UDim.new(0.5, 0))
-	Theme.Stroke(chip, if ok then Palette.UiGoodDark else Palette.UiBad, 2.5)
-
-	local iconBack = Instance.new("Frame")
-	iconBack.AnchorPoint = Vector2.new(0, 0.5)
-	iconBack.Position = UDim2.new(0, 4, 0.5, 0)
-	iconBack.Size = UDim2.fromOffset(30, 30)
-	iconBack.BackgroundColor3 = Color3.fromRGB(255, 232, 196)
-	iconBack.Parent = chip
-	Theme.Corner(iconBack, UDim.new(0.5, 0))
-	Theme.ResourceIcon(iconBack, resourceId).Size = UDim2.fromScale(0.84, 0.84)
-
-	local text = Theme.Label(chip, `{have}/{need}`, Theme.TitleFont, if ok then Palette.UiGoodDark else Palette.UiBad)
-	text.Position = UDim2.fromOffset(40, 4)
-	text.Size = UDim2.new(1, -46, 1, -8)
+	local chip = Components.ResourceChip(row, resourceId, order, 126, 38)
+	chip.Set(math.floor(ResourceController.Get(resourceId)), need)
 end
 
 local function refresh()

@@ -68,7 +68,7 @@ Regras de dependência:
 | `DataService.Mutate(player, fn)` | Única forma de alterar dados. A função recebe uma cópia; o resultado só substitui os dados se ela terminar sem erro. Retorna `false` se o perfil não estiver ativo ou se a função falhar (os dados ficam como estavam) |
 | `DataService.IsLoaded(player)` | Verifica se o perfil está carregado |
 | `DataService.OnLoaded(fn)` | Callback quando o perfil de um jogador é carregado |
-| `DataService.Read(player)` | Leitura **sem cópia e sem yield**, para caminhos frequentes (relógio de produção, objetivos, publicação de estado). Não altera nem guarda a tabela (D-039) |
+| `DataService.Read(player)` | Leitura **sem cópia**, para caminhos frequentes (relógio de produção, objetivos, publicação de estado). Devolve a tabela congelada (D-046): não altere nem guarde a referência. O leitor roda em corrotina e é encerrado com erro se esperar (D-039) |
 | `DataService.OnChanged(fn)` | Avisa mudanças de perfil, no máximo uma vez por quadro por jogador (D-039) |
 
 Comportamento:
@@ -82,7 +82,8 @@ Comportamento:
 - **Saída:** `PlayerRemoving` chama `EndSession`, que grava e libera o lock.
 - **Fechamento do servidor:** o ProfileStore registra o próprio `game:BindToClose` e libera todos os perfis. O `DataService` não duplica essa lógica.
 - **Ambiente:** no Studio usa `IslandRebuild_PlayerData_Studio`. Nunca usa `ProfileStore.Mock` em produção.
-- **Perfil temporário de teste (D-040):** no Studio, com o atributo `FreshProfile = true` no `Workspace` (definido em modo Edit, sem salvar o lugar), o `DataService` usa `ProfileStore.Mock`. Fica só na memória e não lê nem grava DataStore. Serve para testar jogador novo sem tocar em perfis reais.
+- **Perfil congelado (D-046):** os dados guardados são congelados (`DeepCopy.Freeze`) após cada carga e cada `Mutate`. Alterar a tabela congelada gera erro.
+- **Perfil temporário de teste (D-040, D-046):** no Studio, com o atributo `FreshProfile = true` no `Workspace` (definido em modo Edit, sem salvar o lugar), o `DataService` usa `ProfileStore.Mock`. Fica só na memória e não lê nem grava DataStore. Serve para testar jogador novo sem tocar em perfis reais. A decisão está em `Logic/ProfileSource.UseMock(isStudio, atributo)`: só no Studio e só com o atributo exatamente `true`. Fora do Studio, o atributo é ignorado com aviso.
 
 ### 4.2 NetService (base da Fase 1)
 Ponto único de entrada de RemoteEvents. Cada remote passa, nesta ordem, por:
@@ -136,6 +137,16 @@ Remotes de saída (servidor → cliente) são criados por `NetService.CreateOutg
 - **`ObjectiveService`:** progresso calculado do estado do perfil. `RequestObjective()` pede o estado; `ObjectiveChanged(estado, concluídos)` é enviado só quando muda. Ao carregar, objetivos já cumpridos são marcados sem recompensa. A recompensa entra na mesma mutação que conclui o objetivo. Substitui a orientação derivada no cliente (D-029).
 - **Cliente:** `Client/Market`, `Client/Upgrade`, `Client/Expansion` e `Client/Onboarding` (cartão de objetivos e feixe-guia) só abrem painéis e enviam pedidos. A interface de apoio fica em `Client/UI` (`Panel`, `Toast`, `Format`, `World`).
 
+### 4.2g Cadeias produtivas, pedidos e estágios (2026-11-27, D-041 a D-046)
+- **Cadeias no mesmo `ProductionService`:** a regra de produção ganhou entrada opcional (`InputId`, `InputAmount`, `InputCapacity`). `Production.StepConverter` consome e produz no mesmo passo, e para sem matéria-prima ou sem espaço. `Production.Supply` abastece a entrada a partir do saldo, numa só mutação (`SupplyProducer` → `SupplyResult`). Entrada salva por ponto em `Inputs`.
+- **Pedidos (`Logic/Orders`):** 3 vagas em sequência fixa e cíclica. `DeliverOrder(vaga, número do pedido)` responde com `OrderResult`; repetição de pedido antigo responde `Stale`. A entrega consome os recursos e troca o pedido na mesma mutação. `RequestOrders` pede o estado, enviado em `OrdersChanged`.
+- **Estágios (`Logic/Stages`, `Stage` no perfil):** `AdvanceStage` responde com `StageResult`. Requisitos e recompensa são verificados e aplicados na mesma mutação, então o estágio não pode ser pago duas vezes.
+- **Perfil congelado (D-046):** `DataService` congela os dados (`DeepCopy.Freeze`) após cada carga e cada `Mutate`. `Read` entrega a tabela congelada e roda o leitor numa corrotina, que é encerrada com erro se esperar.
+- **Perfil temporário:** a decisão fica em `Logic/ProfileSource.UseMock` (D-046).
+- **Schema 6:** `Inputs`, `Orders` e `Stage`, com migração v5 → v6 em `Logic/PlayerMigrations`.
+- **Cliente:** `Client/Supply` (painel de abastecimento), `Client/Stage` (painel de estágio), `Client/State/ClientState` (estado recebido do servidor), `Client/WorldGui` (placa da ilha e indicadores) e `Client/UI/Components` (componentes reutilizáveis). O mercado tem abas Vender e Pedidos em `Client/Market`. O cliente só envia intenções.
+- **Expansão:** ao liberar a ilha, a expansão é apagada por inteiro, com área e faixa de areia (D-047).
+
 ### 4.3 Serviços previstos (fases seguintes, sem implementação ainda)
 | Serviço | Fase | Responsabilidade |
 |---|---|---|
@@ -169,7 +180,7 @@ Remotes de saída (servidor → cliente) são criados por `NetService.CreateOutg
 ## 8. Persistência — resumo
 - Uma chave por jogador: `Player_<UserId>`, em um DataStore por ambiente.
 - Lock de sessão, salvamento automático pelo ProfileStore, `EndSession` ao sair e salvamento no fechamento do servidor.
-- Versão do schema em `PlayerData.SchemaVersion` (atual: 5; v2 adicionou `Resources`, ver D-024; v3 adicionou `Buildings`, ver D-026; v4 adicionou `Storage` (ponto → quantidade), ver D-031; v5 adicionou `Levels` (nível por ponto), `Expansions`, `Stats` (estatísticas para objetivos) e `Objective` (objetivos concluídos), ver D-036; migrações em `Logic/PlayerMigrations`). Mudar o schema exige: incrementar `Persistence.SchemaVersion`, registrar a migração em `DataService` (`MIGRATIONS`) e adicionar teste em `tests/Logic`.
+- Versão do schema em `PlayerData.SchemaVersion` (atual: 6; v2 adicionou `Resources`, ver D-024; v3 adicionou `Buildings`, ver D-026; v4 adicionou `Storage` (ponto → quantidade), ver D-031; v5 adicionou `Levels` (nível por ponto), `Expansions`, `Stats` (estatísticas para objetivos) e `Objective` (objetivos concluídos), ver D-036; v6 adicionou `Inputs`, `Orders` e `Stage`, ver D-041 a D-045; migrações em `Logic/PlayerMigrations`). Mudar o schema exige: incrementar `Persistence.SchemaVersion`, registrar a migração em `DataService` (`MIGRATIONS`) e adicionar teste em `tests/Logic`.
 
 ## 9. Ilhas — decisão aprovada (D-006)
 - **Lotes individuais no mesmo servidor.** Cada jogador tem uma ilha própria dentro do mapa compartilhado.

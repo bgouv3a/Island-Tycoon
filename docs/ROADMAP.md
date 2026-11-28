@@ -6,9 +6,9 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ aguardando aprovação · �
 |---|---|---|
 | **0. Fundação** | Documentação, regras e arquitetura | ✅ Concluída (aprovada em 2026-11-24) |
 | **1. Base técnica** | Rojo, Wally, bootstrap de servidor e cliente, DataService (ProfileStore), NetService, controles, testes e CI. **Sem gameplay** | 🔄 Código no GitHub e validado no Studio em parte: testes TestEZ (30 aprovados), carregamento, `GetData`, `Mutate`, persistência entre sessões e liberação de lock. Pendentes: expulsão, falhas de carregamento, dois clientes e separação entre produção e teste |
-| **2. Loop de coleta** | Nós de recursos, inventário e economia validados no servidor | 🔄 Iniciada por pedido do dono (2026-11-25). Entregue: ilha por jogador, coleta de madeira com saldo persistido e **construção** em pontos fixos com Cerca e Cabana (2026-11-26, pedido do dono). **Vertical slice visual** da ilha inicial (cenário, modelos, interface, feedback e orientação, D-027 a D-030). **Serraria**, primeira automação (2026-11-26, D-031): produção só online, estoque em `Storage`, pontos B5–B8 (D-032). **Economia provisória** (2026-11-27, D-034 a D-040): Pedra, moedas e mercado no píer, melhorias da Serraria (nv1–5), primeira expansão (Enseada Leste) e 8 objetivos com recompensas do servidor. Valores em `Config/Economy` (D-034). Pendente: validação no Studio das novas funções (P-019), validação com dois jogadores, inventário e cadeias de produção (ex.: tábuas na Serraria) |
+| **2. Loop de coleta** | Nós de recursos, inventário e economia validados no servidor | 🔄 Iniciada por pedido do dono (2026-11-25). Entregue: ilha por jogador, coleta de madeira com saldo persistido e **construção** em pontos fixos com Cerca e Cabana (2026-11-26, pedido do dono). **Vertical slice visual** da ilha inicial (cenário, modelos, interface, feedback e orientação, D-027 a D-030). **Serraria**, primeira automação (2026-11-26, D-031): produção só online, estoque em `Storage`, pontos B5–B8 (D-032). **Economia provisória** (2026-11-27, D-034 a D-040): Pedra, moedas e mercado no píer, melhorias da Serraria (nv1–5), primeira expansão (Enseada Leste) e 8 objetivos com recompensas do servidor. Valores em `Config/Economy` (D-034). **Cadeias produtivas, pedidos e Ilha produtiva** (2026-11-27, D-041 a D-045): Pedreira, Carpintaria e tábuas, pedidos no píer e estágio 2, todos provisórios (valores em D-042). Pendente: balanceamento com jogadores, validação com dois jogadores e mobile, inventário e próximos estágios |
 | **3. Construção** | Colocação de estruturas e lotes de ilha | ⬜ |
-| **4. Automação** | Máquinas de produção com agendamento centralizado | ⬜ Primeira máquina antecipada a pedido do dono: Serraria, entregue na Fase 2 (D-031). Demais máquinas e agendamento centralizado não iniciados |
+| **4. Automação** | Máquinas de produção com agendamento centralizado | ⬜ Primeira máquina antecipada a pedido do dono: Serraria, entregue na Fase 2 (D-031). Pedreira e Carpintaria também entregues na Fase 2 como provisórias (D-041, D-042), no mesmo `ProductionService`. Agendamento centralizado por intervalo próprio e demais máquinas não iniciados |
 | **5. Progressão** | Desbloqueios e metas | ⬜ |
 | **6. Social** | Visitas e interações entre ilhas | ⬜ |
 | **7. Polimento e desempenho** | Testes de desempenho (define jogadores por servidor), otimização, testes com múltiplos jogadores | ⬜ |
@@ -39,10 +39,10 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ aguardando aprovação · �
 2. Corrigir o que falhar, registrando em `problemas-e-aprendizados.md`.
 3. Só após a validação, solicitar aprovação para encerrar a Fase 1 e, depois disso, implementar recursos, inventário e economia (Fase 2).
 
-## Próximos passos da Fase 2 (economia provisória)
-1. **Cadeia de tábuas (Planks) na Serraria:** transformar madeira em tábuas. Exige aprovação de design antes da implementação.
-2. **Balanceamento com jogadores:** ajustar os valores de `Config/Economy` (D-034) com teste de pelo menos dois clientes.
-3. **Mais expansões:** definir as próximas áreas e seus custos. Exige aprovação de design.
+## Próximos passos da Fase 2 (cadeias produtivas provisórias)
+1. **Balanceamento com jogadores:** ajustar os valores de `Config/Economy` (D-034) e os de D-042 (Pedreira, Carpintaria, tábuas, pedidos e estágio 2) com teste de pelo menos dois clientes.
+2. **Teste multiplayer e mobile:** dois jogadores ao mesmo tempo (ilhas, estágios e pedidos) e layout em celular e em telas pequenas.
+3. **Próximos estágios e expansões:** definir o estágio seguinte e as próximas áreas, com custos. Exige aprovação de design.
 
 ## Critérios de saída de cada fase
 - Funcionalidades testadas no Studio com pelo menos dois clientes quando envolverem multiplayer.

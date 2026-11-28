@@ -224,6 +224,19 @@ function Theme.ResourceIcon(parent: GuiObject, resourceId: string): Frame
 		Theme.Stroke(big, Palette.RockDark, 2)
 		local small = piece(UDim2.fromScale(0.68, 0.4), UDim2.fromScale(0.38, 0.32), Palette.RockLight, UDim.new(0.3, 0), 12)
 		Theme.Stroke(small, Palette.RockDark, 2)
+	elseif resourceId == "Planks" then
+		-- Pilha de três tábuas, a do meio deslocada.
+		local colors = { Palette.PlankDark, Palette.Plank, Palette.PlankLight }
+		for index, color in colors do
+			local plank = piece(
+				UDim2.fromScale(0.5 + (index - 2) * 0.06, 0.26 + (index - 1) * 0.24),
+				UDim2.fromScale(0.78, 0.2),
+				color,
+				UDim.new(0.2, 0),
+				if index == 2 then 0 else (index - 2) * 3
+			)
+			Theme.Stroke(plank, Palette.PlankDark, 1.5)
+		end
 	else
 		piece(UDim2.fromScale(0.5, 0.5), UDim2.fromScale(0.7, 0.7), Palette.UiNeutral, UDim.new(0.5, 0), 0)
 	end

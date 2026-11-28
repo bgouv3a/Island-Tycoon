@@ -13,6 +13,9 @@ export type PlayerData = {
 	Expansions: { [string]: boolean }, -- expansões liberadas (ver Config/Economy.Expansions)
 	Stats: { [string]: number }, -- estatísticas acumuladas, usadas pelos objetivos (ver Logic/Stats)
 	Objective: number, -- quantos objetivos iniciais foram concluídos (ver Logic/Objectives)
+	Inputs: { [string]: number }, -- estoque de entrada por ponto (máquinas que processam; Logic/Production)
+	Orders: { [string]: any }, -- pedidos comerciais: Next e Slots (ver Logic/Orders)
+	Stage: number, -- estágio da ilha: 1 inicial, 2 produtiva (ver Logic/Stages)
 }
 
 return {}

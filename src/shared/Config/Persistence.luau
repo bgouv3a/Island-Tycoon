@@ -17,7 +17,7 @@ local Persistence = {
 	-- e não lê nem grava nenhum DataStore. Serve para testar a experiência de jogador novo.
 	StudioFreshProfileAttribute = "FreshProfile",
 
-	SchemaVersion = 5,
+	SchemaVersion = 6,
 }
 
 return Persistence

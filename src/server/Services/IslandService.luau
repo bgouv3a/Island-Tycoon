@@ -392,6 +392,8 @@ local function lockExpansion(slot: number, area: string)
 		state.Folder = nil
 	end
 	Environment.ClearExpansion(originFor(slot), shape)
+	-- Recria a ilha principal com a mesma semente: o corte da faixa não deixa marcas na praia.
+	Environment.ShapeIsland(originFor(slot), Random.new(slot))
 	setTeaserVisible(slot, area, true)
 end
 

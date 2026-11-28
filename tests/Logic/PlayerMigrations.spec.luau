@@ -119,4 +119,34 @@ return function()
 			expect(data.SchemaVersion).to.equal(5)
 		end)
 	end)
+
+	describe("PlayerMigrations (v5 → v6: cadeias produtivas, pedidos e estágio)", function()
+		it("adiciona entrada, pedidos e estágio 1 preservando o perfil v5", function()
+			local data: { [string]: any } = {
+				SchemaVersion = 5,
+				Resources = { Coins = 65 },
+				Buildings = { B5 = "Sawmill", X2 = "Fence" },
+				Storage = { B5 = 9 },
+				Levels = { B5 = 2 },
+				Expansions = { E1 = true },
+				Stats = { Harvested = 3 },
+				Objective = 8,
+			}
+			SchemaMigrator.Apply(data, 5, 6, PlayerMigrations)
+			expect(data.SchemaVersion).to.equal(6)
+			expect(type(data.Inputs)).to.equal("table")
+			expect(type(data.Orders)).to.equal("table")
+			expect(data.Stage).to.equal(1)
+			expect(data.Levels.B5).to.equal(2)
+			expect(data.Expansions.E1).to.equal(true)
+			expect(data.Objective).to.equal(8)
+		end)
+
+		it("migra da versão 1 até a 6 em sequência", function()
+			local data: { [string]: any } = { SchemaVersion = 1 }
+			SchemaMigrator.Apply(data, 1, 6, PlayerMigrations)
+			expect(data.Stage).to.equal(1)
+			expect(data.SchemaVersion).to.equal(6)
+		end)
+	end)
 end

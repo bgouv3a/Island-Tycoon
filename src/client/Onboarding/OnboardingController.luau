@@ -19,6 +19,8 @@ local Toast = require(script.Parent.Parent.UI.Toast)
 local Effects = require(script.Parent.Parent.UI.Effects)
 local Format = require(script.Parent.Parent.UI.Format)
 local World = require(script.Parent.Parent.UI.World)
+local ClientState = require(script.Parent.Parent.State.ClientState)
+local StageController = require(script.Parent.Parent.Stage.StageController)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local RequestObjective = Remotes:WaitForChild("RequestObjective") :: RemoteEvent
@@ -41,6 +43,7 @@ type State = {
 	Current: number?,
 	Target: number?,
 	Guide: string?,
+	GuideKey: string?,
 	Reward: Reward?,
 }
 
@@ -59,6 +62,7 @@ local fill: Frame? = nil
 local progressLabel: TextLabel? = nil
 local progressTrack: Frame? = nil
 local rewardLabel: TextLabel? = nil
+local stageBadge: TextButton? = nil
 
 local beam: Beam? = nil
 local fromAttachment: Attachment? = nil
@@ -99,8 +103,20 @@ local function buildCard()
 
 	local top = Theme.Label(frame, "", Theme.TitleFont, Palette.UiAccentDark)
 	top.Position = UDim2.fromScale(0.05, 0.05)
-	top.Size = UDim2.fromScale(0.9, 0.16)
+	top.Size = UDim2.fromScale(0.5, 0.16)
 	top.TextXAlignment = Enum.TextXAlignment.Left
+
+	-- Selo do estágio da ilha: abre o painel de estágio.
+	local badge = Theme.Button(frame, "", Palette.UiNeutral, Palette.UiMuted)
+	badge.Name = "StageBadge"
+	badge.AnchorPoint = Vector2.new(1, 0)
+	badge.Position = UDim2.fromScale(0.95, 0.04)
+	badge.Size = UDim2.fromScale(0.42, 0.19)
+	badge.Visible = false
+	badge.Activated:Connect(function()
+		StageController.Open()
+	end)
+	stageBadge = badge
 
 	local text = Theme.Label(frame, "", Theme.BodyFont, Palette.UiText)
 	text.Position = UDim2.fromScale(0.05, 0.23)
@@ -185,7 +201,28 @@ local function render(current: State)
 			:Play()
 	end
 	local rewardText = if current.Reward ~= nil then Format.Reward(current.Reward) else ""
-	reward.Text = if rewardText ~= "" then `Recompensa: {rewardText}` else ""
+	if current.Guide == "Stage" then
+		-- Sem feixe: o cartão sugere abrir o painel do estágio pelo selo.
+		reward.Text = if rewardText ~= "" then `Toque no selo da ilha · {rewardText}` else "Toque no selo da ilha"
+	else
+		reward.Text = if rewardText ~= "" then `Recompensa: {rewardText}` else ""
+	end
+end
+
+-- Selo do estágio: nome atual; destacado quando o próximo estágio já pode ser liberado.
+local function updateBadge()
+	local badge = stageBadge
+	local stage = ClientState.GetStage()
+	if badge == nil or stage == nil then
+		return
+	end
+	badge.Visible = true
+	badge.Text = if stage.Ready and stage.NextName ~= nil then `{stage.Name} !` else stage.Name
+	if stage.Ready and stage.NextName ~= nil then
+		Theme.Recolor(badge, Palette.UiGood, Palette.UiGoodDark)
+	else
+		Theme.Recolor(badge, Palette.UiAccent, Palette.UiAccentDark)
+	end
 end
 
 local function showFinal()
@@ -265,6 +302,7 @@ local function readState(raw: any): State?
 		Current = if type(raw.Current) == "number" then raw.Current else nil,
 		Target = if type(raw.Target) == "number" then raw.Target else nil,
 		Guide = if type(raw.Guide) == "string" then raw.Guide else nil,
+		GuideKey = if type(raw.GuideKey) == "string" then raw.GuideKey else nil,
 		Reward = reward,
 	}
 end
@@ -275,6 +313,8 @@ local function onObjectiveChanged(rawState: any, completed: any)
 		return
 	end
 	state = parsed
+	ClientState.SetFromObjective(rawState)
+	updateBadge()
 	announce(completed)
 	if parsed.Done then
 		if sawActive then
@@ -389,7 +429,7 @@ local function nearest(list: { BasePart }, from: Vector3, accept: (BasePart) -> 
 end
 
 -- Peça "Output" (ou principal) da máquina produtiva mais próxima; prefere as com estoque.
-local function nearestProducer(island: Model, from: Vector3): BasePart?
+local function nearestProducer(island: Model, from: Vector3, producerId: string): BasePart?
 	local builds = island:FindFirstChild("Builds")
 	if builds == nil then
 		return nil
@@ -398,7 +438,7 @@ local function nearestProducer(island: Model, from: Vector3): BasePart?
 	local bestDistance = math.huge
 	local bestHasStock = false
 	for _, child in builds:GetChildren() do
-		if child:IsA("Model") and child:GetAttribute("Producer") ~= nil then
+		if child:IsA("Model") and child:GetAttribute("Producer") == producerId then
 			local output = child:FindFirstChild("Output", true)
 			local part = if output ~= nil and output:IsA("BasePart")
 				then output
@@ -429,7 +469,7 @@ local function isBoardAvailable(board: BasePart): boolean
 	return true
 end
 
-local function findTarget(guide: string, island: Model, from: Vector3): BasePart?
+local function findTarget(guide: string, guideKey: string?, island: Model, from: Vector3): BasePart?
 	if guide == "Tree" or guide == "Rock" then
 		return nearest(nodeParts, from, function(part: BasePart): boolean
 			return part:GetAttribute("NodeKind") == guide and part:GetAttribute("Ready") == true
@@ -439,7 +479,7 @@ local function findTarget(guide: string, island: Model, from: Vector3): BasePart
 			return part:GetAttribute("Open") == true
 		end)
 	elseif guide == "Producer" then
-		return nearestProducer(island, from)
+		return nearestProducer(island, from, guideKey or "Sawmill")
 	elseif guide == "Market" then
 		return nearest(marketParts, from, function(): boolean
 			return true
@@ -461,7 +501,7 @@ local function updateGuide()
 	if island ~= scannedIsland or os.clock() - lastScan >= SCAN_SECONDS then
 		rescan(island)
 	end
-	setGuide(findTarget(current.Guide, island, root.Position), root)
+	setGuide(findTarget(current.Guide, current.GuideKey, island, root.Position), root)
 end
 
 function OnboardingController.Init()

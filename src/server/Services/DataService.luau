@@ -14,6 +14,11 @@
 
 	Custo das cópias: Mutate copia o perfil (transação) e GetData devolve uma cópia. Caminhos
 	frequentes (relógio de produção, objetivos) usam Read, que não copia nada.
+
+	Proteção do perfil: os dados guardados ficam congelados (DeepCopy.Freeze) depois de cada
+	carga e de cada Mutate. Read entrega essa tabela congelada: qualquer tentativa de escrita gera
+	erro, então nada contorna o Mutate. Read também não pode esperar (yield): a leitura roda em
+	uma corrotina e é encerrada com erro se tentar esperar.
 ]]
 
 local Players = game:GetService("Players")
@@ -29,6 +34,7 @@ local SchemaMigrator = require(Shared.Logic.SchemaMigrator)
 local DeepCopy = require(Shared.Logic.DeepCopy)
 local Transaction = require(Shared.Logic.Transaction)
 local PlayerMigrations = require(Shared.Logic.PlayerMigrations)
+local ProfileSource = require(Shared.Logic.ProfileSource)
 
 -- Biblioteca de terceiros (Wally: lm-loleris/profilestore@=1.0.3).
 local ProfileStore = require(ServerScriptService:WaitForChild("ServerPackages"):WaitForChild("ProfileStore"))
@@ -131,6 +137,7 @@ local function loadProfile(player: Player)
 	-- Preenche campos novos que estejam faltando com o template.
 	profile:Reconcile()
 	profile.Data.SchemaVersion = CURRENT_VERSION
+	DeepCopy.Freeze(profile.Data) -- daqui em diante, só Mutate troca os dados
 
 	profile:AddUserId(player.UserId)
 	profiles[player] = profile
@@ -171,9 +178,16 @@ function DataService.Init()
 		Expansions = {},
 		Stats = {},
 		Objective = 0,
+		Inputs = {},
+		Orders = {},
+		Stage = 1,
 	})
 
-	useMock = RunService:IsStudio() and Workspace:GetAttribute(Persistence.StudioFreshProfileAttribute) == true
+	local requested = Workspace:GetAttribute(Persistence.StudioFreshProfileAttribute)
+	useMock = ProfileSource.UseMock(RunService:IsStudio(), requested)
+	if requested ~= nil and not RunService:IsStudio() then
+		warn("[DataService] Atributo de perfil temporário ignorado: só é permitido no Studio")
+	end
 	if useMock then
 		warn("[DataService] Studio com perfil temporário (ProfileStore.Mock): nada será lido nem salvo no DataStore")
 	end
@@ -204,7 +218,17 @@ function DataService.Read<T>(player: Player, reader: (data: PlayerData) -> T): T
 	if profile == nil or not profile:IsActive() then
 		return nil
 	end
-	return reader(profile.Data)
+	-- Os dados estão congelados (escrita gera erro). A corrotina garante que a leitura não espere.
+	local thread = coroutine.create(reader)
+	local ok, result = coroutine.resume(thread, profile.Data)
+	if coroutine.status(thread) ~= "dead" then
+		coroutine.close(thread)
+		error("DataService.Read: a leitura não pode esperar (yield)", 2)
+	end
+	if not ok then
+		error(result, 2)
+	end
+	return result
 end
 
 -- Cópia somente leitura dos dados do jogador, ou nil se o perfil não estiver carregado e ativo.
@@ -225,12 +249,23 @@ function DataService.Mutate(player: Player, mutator: (data: PlayerData) -> ()): 
 	if profile == nil or not profile:IsActive() then
 		return false
 	end
-	local ok, result = Transaction.Apply(profile.Data, mutator)
+	-- O mutador também não pode esperar: outra mutação no meio seria perdida ao trocar os dados.
+	local ok, result = Transaction.Apply(profile.Data, function(working)
+		local thread = coroutine.create(mutator)
+		local resumed, err = coroutine.resume(thread, working)
+		if coroutine.status(thread) ~= "dead" then
+			coroutine.close(thread)
+			error("DataService.Mutate: a mutação não pode esperar (yield)")
+		end
+		if not resumed then
+			error(err)
+		end
+	end)
 	if not ok then
 		warn(`[DataService] Mutação cancelada para o jogador {player.UserId}: {tostring(result)}`)
 		return false
 	end
-	profile.Data = result
+	profile.Data = DeepCopy.Freeze(result)
 	-- Avisa os interessados uma vez por quadro, mesmo com várias mutações seguidas.
 	if #changedCallbacks > 0 and not changePending[player] then
 		changePending[player] = true
